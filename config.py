@@ -11,12 +11,6 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 GROQ_MODEL = "whisper-large-v3-turbo"   # STT
 GROQ_LANGUAGE = "ko"
 OPENAI_MODEL = "gpt-5.5"                # 의도분석 + agent
-CRITIC_MODEL = OPENAI_MODEL             # 시각 자가검증 (다른 계열로 교체 가능)
-
-# 시각 자가검증 (§13)
-VISUAL_CHECK = True        # 실험 조건 토글 (있음/없음)
-CRITIC_PASS_SCORE = 0.8    # 이 점수 이상이면 통과 → HITL-2로
-CRITIC_MAX_ROUNDS = 2      # 지적→수정 재시도 한도 (그 후엔 무조건 HITL-2)
 
 # 로봇 물리 상수 (cm) — BoT² 확정 스펙
 BODY_W_CM = 40

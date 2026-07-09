@@ -20,11 +20,15 @@ def get_recent_context(n):
 
 
 def commit_layout(description):
+    """보통은 부를 필요 없다 — ask_user 승인 시 코드가 자동 확정한다.
+    직전 커밋 이후 변화가 없으면 중복 커밋하지 않고 no-op으로 반환."""
+    sc = _scene()
     intent = STATE.get("intent") or {}
-    entry = _scene().commit(description,
-                            intent.get("intent_type", "new_scene"),
-                            STATE.get("utterance", ""))
-    return {"turn": entry["turn"], "description": description}
+    entry = sc.commit_if_changed(description,
+                                 intent.get("intent_type", "new_scene"),
+                                 STATE.get("utterance", ""))
+    noop = bool(sc.history) and sc.history[-1] is entry and entry["description"] != description
+    return {"turn": entry["turn"], "description": entry["description"], "noop": noop}
 
 
 def revert_to(version):
@@ -38,5 +42,6 @@ def revert_to(version):
         push_scene()          # 방까지 바뀌면 scene_change
     else:
         push_state()
+    # 복원은 코드가 이미 끝냈다 — LLM에는 요약만 (전체 state 반환은 토큰 낭비)
     return {"turn": entry["turn"], "space": entry["space"],
-            "description": entry["description"], "state": entry["state"]}
+            "description": entry["description"]}

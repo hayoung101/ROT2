@@ -200,22 +200,60 @@ def place_without_overlap(state, fixed_rects, room_w, room_d,
     return None
 
 
+def _worst_overlap(rects_a, rects_b, slack=DEFAULT_SLACK):
+    """두 rect 목록 사이 최대 침투 (depth, axis). 겹침 없으면 None.
+    axis는 a를 b에서 밀어내는 단위 방향."""
+    worst = None
+    for ra in rects_a:
+        for rb in rects_b:
+            depth, axis = obb_penetration(ra, rb)
+            if depth > slack and (worst is None or depth > worst[0]):
+                worst = (depth, axis)
+    return worst
+
+
+def _bounds_hint(st, room_w, room_d):
+    """방 밖으로 나간 방향·거리를 문자열과 이동 벡터로."""
+    x0, y0, x1, y1 = footprint_bbox(st)
+    dx = -x0 if x0 < 0 else (room_w - x1 if x1 > room_w else 0.0)
+    dy = -y0 if y0 < 0 else (room_d - y1 if y1 > room_d else 0.0)
+    return {"dx": round(dx, 1), "dy": round(dy, 1),
+            "note": "footprint를 (%+.0f, %+.0f) 옮기면 방 안으로 들어온다" % (dx, dy)}
+
+
 def validate_layout(robots, scene, slack=DEFAULT_SLACK):
     """전체 배치 검증. 반환: 문제 목록(비면 통과).
-    robots: state 목록, scene: {"width","depth","pre_existing_furniture":[...]}"""
+    robots: state 목록, scene: {"width","depth","pre_existing_furniture":[...]}
+    각 issue에 수정 방향 힌트(수치)를 실어 LLM이 재시도 시 빠르게 수렴하게 한다."""
     issues = []
     w, d = scene["width"], scene["depth"]
     furn = scene.get("pre_existing_furniture", [])
     for st in robots:
         if out_of_bounds(st, w, d):
-            issues.append({"type": "out_of_bounds", "robot": st.get("robot")})
+            issues.append({"type": "out_of_bounds", "robot": st.get("robot"),
+                           "fix": _bounds_hint(st, w, d)})
         for f in furn:
-            if robot_hits_furniture(st, f, slack):
+            pen = _worst_overlap(footprint_rects(st), [furniture_rect(f)], slack)
+            if pen:
+                depth, (ax, ay) = pen
                 issues.append({"type": "furniture_overlap",
-                               "robot": st.get("robot"), "furniture": f.get("id")})
+                               "robot": st.get("robot"), "furniture": f.get("id"),
+                               "penetration": round(depth, 1),
+                               "fix": {"robot": st.get("robot"),
+                                       "dx": round(ax * depth, 1), "dy": round(ay * depth, 1),
+                                       "note": "%s를 (%+.0f, %+.0f) 옮기면 겹침이 풀린다"
+                                               % (st.get("robot"), ax * depth, ay * depth)}})
     for i in range(len(robots)):
         for j in range(i + 1, len(robots)):
-            if robots_collide(robots[i], robots[j], slack):
+            pen = _worst_overlap(footprint_rects(robots[i]), footprint_rects(robots[j]), slack)
+            if pen:
+                depth, (ax, ay) = pen
+                mover = robots[i].get("robot")
                 issues.append({"type": "robot_overlap",
-                               "robots": [robots[i].get("robot"), robots[j].get("robot")]})
+                               "robots": [robots[i].get("robot"), robots[j].get("robot")],
+                               "penetration": round(depth, 1),
+                               "fix": {"robot": mover,
+                                       "dx": round(ax * depth, 1), "dy": round(ay * depth, 1),
+                                       "note": "%s를 (%+.0f, %+.0f) 옮기면 겹침이 풀린다"
+                                               % (mover, ax * depth, ay * depth)}})
     return issues

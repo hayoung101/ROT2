@@ -77,6 +77,10 @@ INTENT_PROMPT = (
 
     "【intent_type — 분류】 새 발화가 무엇을 요구하는지 분류하라: confirm(결과 승인. '좋아', '그렇게 해줘'), modify(조정. '패널 더 펼쳐줘', '너무 좁아', '옆으로 옮겨', '반대쪽으로 돌려줘'), add(추가. '하나 더'), remove(제거. '치워줘'), revert(복원. '원래대로', '아까처럼'), new_scene(새로운 상황 묘사. '이제 숙제하자')."
 
+    "【revert_to_turn — 복원 대상 turn】 intent_type이 revert일 때만 채운다. 입력의 최근 history(recent_history)에서 사용자가 되돌리려는 turn 번호를 골라 넣어라. '원래대로/방금 그거'는 가장 최근 커밋의 turn, '아까 거실에서처럼/밥 먹을 때처럼'은 history의 space·description·utterance로 그 상황에 해당하는 turn을 찾아 그 번호를 넣어라. history가 비었거나 대상을 특정할 수 없으면, 그리고 intent_type이 revert가 아니면 null."
+
+    "【needs_clarification — 되묻기 판단】 발화만으로 구성을 진행하기 어려울 때 true로 두고 clarification_question에 물을 문장을 담아라. 대표적으로 number가 null이거나(인원 단서 없음) space가 unknown일 때, 또는 발화 해석이 둘 이상으로 갈릴 때다. 이건 코드가 강제하는 규칙이 아니라 너의 판단이다 — 정보가 충분하면 무리해서 되묻지 마라. true이면 시스템이 사용자에게 먼저 되묻고(답을 받아 다시 너에게 재분석을 맡긴다) 그 뒤에 확인 단계로 넘어간다. 정보가 충분하면 false, clarification_question은 null."
+
     "【confirmation_message】 파악한 내용을 사용자에게 자연스럽게 확인하는 한 문장. 인원·구성·활동과 무엇을 준비할지를 담아라. 예: '아이와 함께 공작 놀이를 하시는군요, 넓은 작업 테이블을 준비해드릴게요.'"
 )
 
@@ -137,6 +141,18 @@ INTENT_SCHEMA = {
             "enum": ["confirm", "modify", "add", "remove", "revert", "new_scene"],
             "description": "발화의 요구 분류 (라우팅용)",
         },
+        "revert_to_turn": {
+            "type": ["integer", "null"],
+            "description": "intent_type이 revert일 때 되돌릴 대상 turn 번호. 그 외에는 null",
+        },
+        "needs_clarification": {
+            "type": "boolean",
+            "description": "발화만으로 구성을 진행하기엔 정보가 부족하거나 해석이 갈려 사용자에게 먼저 되물어야 하면 true (예: number=null, space=unknown, 해석 후보가 여럿)",
+        },
+        "clarification_question": {
+            "type": ["string", "null"],
+            "description": "needs_clarification이 true일 때 사용자에게 물을 한 문장. 그 외에는 null",
+        },
         "confirmation_message": {
             "type": "string",
             "description": "HITL-1(human-in-the-loop)용 의도 확인 발화 한 문장",
@@ -144,7 +160,8 @@ INTENT_SCHEMA = {
     },
     "required": [
         "number", "user_composition", "situation", "activity", "space",
-        "furniture", "posture", "intent_type", "confirmation_message",
+        "furniture", "posture", "intent_type", "revert_to_turn",
+        "needs_clarification", "clarification_question", "confirmation_message",
     ],
     "additionalProperties": False,
 }
@@ -156,7 +173,7 @@ AGENT_PROMPT = (
 
     "【핵심 작동 원리】 너의 일은 '현재 상태'를 사용자의 요청대로 편집해 새 전체 상태를 만드는 '상태 편집기'다. 로봇에서 바꿀 수 있는 축은 다섯 가지뿐이다: (1) 위치 x·y, (2) 방향 rot, (3) 왼쪽 패널 각도, (4) 오른쪽 패널 각도, (5) 조합/수납 — 두 대를 붙이거나 떼거나, 안 쓰는 로봇을 도크로 치우거나. 세상의 어떤 요청이든 결국 이 다섯 축의 조합으로 표현된다. '이 상황엔 이렇게'라는 정해진 규칙표를 찾지 말고, 매번 '사용자의 말이 이뤄지려면 어떤 축을 어떻게 바꿔야 하는가'를 그 자리에서 추론하라."
 
-    "【편집의 크기는 intent_type이 정한다】 modify/add/remove(조정)면 요청을 이루는 '가장 작은 편집'을 찾아라 — 쓰고 있는 기능은 건드리지 말고, 놀고 있는 자원(0° 패널, 미사용 로봇)부터 활용하라. 요청과 무관한 로봇을 멋대로 초기화하거나 치우지 마라. new_scene(새 상황)이면 반대로 이전 구성에 얽매이지 말고 새 상황 기준으로 처음부터 구상하되, 새 구성에 쓰이지 않는 로봇은 store_robot으로 정리하라 — 이전 상태는 history에 남으니 잃는 것이 없다."
+    "【편집의 크기는 intent_type이 정한다】 modify/add/remove(조정)면 요청을 이루는 '가장 작은 편집'을 찾아라 — 쓰고 있는 기능은 건드리지 말고, 놀고 있는 자원(0° 패널, 미사용 로봇)부터 활용하라. 요청과 무관한 로봇을 멋대로 초기화하거나 치우지 마라. new_scene(새 상황)이면 반대로 이전 구성에 얽매이지 말고 새 상황 기준으로 처음부터 구상하되, 새 구성에 쓰이지 않으면서 지금 active인 로봇만 store_robot으로 정리하라 — 이미 inactive(도크 정리)인 로봇에는 store_robot을 호출하지 마라(변화 없이 호출만 낭비된다). 이전 상태는 history에 남으니 잃는 것이 없다."
 
     "【형태를 정하는 방법】 각도·위치·방향을 정하기 전에, 그 형태가 사용자의 '몸'과 올려둘 '물건'과 어떻게 만나는지 상상하라. 몸: 앉으면 다리는 어디로 가는지, 손은 어디까지 닿는지, 시선은 무엇을 향하는지. 물건: 수평이 필요한가(찻잔), 기대야 하는가(책·태블릿), 미끄러지지 않는가. 각 패널 각도를 왜 그렇게 정했는지 이 관점에서 스스로 설명할 수 있어야 한다. 사용자가 성인인지 아이인지에 따라 같은 형태의 의미가 반전된다는 점(닫힌 상자 = 성인 좌석 = 아이 테이블)을 항상 적용하라. 파티션(180°)은 집중용 가림막만이 아니라, 여러 사용자가 한 공간에 공존할 때 활동 구역을 나누는 경계이기도 하다 — 예: 아이 놀이 구역과 성인 작업 구역 분리."
 
@@ -172,45 +189,5 @@ AGENT_PROMPT = (
 
     "【실행 전 자가 점검】 transform/move를 호출하기 전에, 완성된 구성 전체를 사용자의 눈으로 한 번 훑어라 — 이 활동에 빠진 가구는 없는가, 각 로봇의 위치와 방향이 서로·기존 가구와 자연스러운 관계를 이루는가, 인원과 구성(성인/아이)에 맞는가, 동선을 막지 않는가. 조화로운지의 판단은 코드가 해주지 않는다 — 어색한 점을 스스로 찾았으면 고친 뒤에 실행하라."
 
-    "【진행 절차】 (1) robot_states()와 get_environment()로 현재를 파악하고, 필요하면 get_recent_context(n)로 '아까 그거'류를 해석하라. (2) 구성을 결정하고 check_feasibility로 검증하라. (3) transform_robot/move_robot/store_robot으로 실행하라 (뷰어 갱신은 자동이다). (4) ask_user로 배치 결과 승인을 요청하라. 정보가 부족하면 ask_clarification을 쓰되 턴당 1회, 최대 2회까지만."
+    "【진행 절차】 (1) robot_states()와 get_environment()로 현재를 파악하고, 필요하면 get_recent_context(n)로 '아까 그거'류를 해석하라. (2) 구성을 결정하고 check_feasibility로 검증하라. (3) transform_robot/move_robot/store_robot으로 실행하라 (뷰어 갱신은 자동이다). (4) ask_user로 배치 결과 승인을 요청하라. (인원·방 등 정보 부족·해석 애매는 이미 의도 단계에서 되물어 해소된 상태로 들어온다 — 여기서 다시 되묻지 않는다.)"
 )
-
-
-# 시각 자가검증(VLM critic) 프롬프트 — HSM(3dlg-hcvc/hsm)의 validate 프롬프트 패턴 번안.
-# 사용: 탑다운 배치도 이미지 + 의도 요약을 주고 조화만 점검 (물리는 코드가 보장).
-CRITIC_PROMPT = (
-    "너는 로봇 가구 배치의 조화를 점검하는 비평가다. 입력은 방을 위에서 내려다본 배치도 이미지와 사용자의 의도 요약이다. 이미지에는 방 경계, 기존 가구(라벨과 앞방향 화살표), 로봇(본체와 펼친 패널)이 표시되어 있다."
-
-    "물리적 충돌이나 경계 초과는 코드가 이미 검증했으므로 다루지 마라. 너의 관심사는 오직 배치의 '조화'다: (1) 관계 — 의자가 테이블을 향하는가, 짝이 되어야 할 가구끼리 맞물리는가. (2) 동선 — 문·통로·가구 사이의 이동을 막지 않는가. (3) 여백과 밀집 — 활동에 필요한 공간이 확보되는가, 불필요하게 몰려 있지 않은가. (4) 의도 적합성 — 이 배치가 사용자의 활동과 인원(성인/아이)에 실제로 도움이 되는가."
-
-    "상식으로 판단하되 사소한 트집은 잡지 마라 — 사용자가 봤을 때 '고쳐 달라'고 말할 만한 문제만 지적하라. 문제를 지적할 때는 어느 로봇이 문제인지(target)와 구체적인 수정 방향(suggestion — 가능하면 좌표·각도 수치로)을 함께 제시하라."
-
-    "score는 0~1 사이다: 1 = 그대로 승인될 배치, 부분적으로만 적절하면 적절한 로봇의 비율로(예: 2대 중 1대만 적절하면 0.5), 0 = 의도와 동떨어진 배치. score가 기준(0.8) 이상이면 problems는 비워라."
-)
-
-# critic 출력 스키마 (structured outputs strict)
-CRITIC_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "score": {
-            "type": "number",
-            "description": "배치 조화 점수 0~1. 부분 적절이면 비율로",
-        },
-        "problems": {
-            "type": "array",
-            "description": "고칠 문제 목록 (score >= 0.8이면 빈 배열)",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "target": {"type": "string", "description": "문제의 대상 (예: 'BOT 1')"},
-                    "issue": {"type": "string", "description": "무엇이 어색한가"},
-                    "suggestion": {"type": "string", "description": "구체적 수정 방향 (가능하면 좌표·각도)"},
-                },
-                "required": ["target", "issue", "suggestion"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["score", "problems"],
-    "additionalProperties": False,
-}

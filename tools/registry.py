@@ -60,7 +60,8 @@ TOOLS = [
            "y": {"type": "number", "description": "본체 바닥 중심 y (cm)"},
            "rot": {"type": ["number", "null"], "description": "방향 (도, CCW). null이면 현재 방향 유지"}}),
     _tool("store_robot",
-          "'치워줘' 또는 새 구성에 쓰지 않는 로봇 정리: 방 구석 홈 도크로 복귀시키고 패널 0°, inactive로 초기화한다 (원자 처리).",
+          "'치워줘' 또는 새 구성에 쓰지 않는 로봇 정리: 방 구석 홈 도크로 복귀시키고 패널 0°, inactive로 초기화한다 (원자 처리). "
+          "active인 로봇에만 호출하라 — 이미 inactive(도크 정리 완료)인 로봇에는 호출하지 마라. 호출해도 noop만 반환된다.",
           {"robot": _ROBOT}),
     _tool("check_feasibility",
           "구성안을 실행 전에 검증한다 (경계·기존 가구·로봇 겹침 + 선언한 연결의 패널 맞닿음). "
@@ -96,19 +97,11 @@ TOOLS = [
     _tool("revert_to", "지정한 turn의 스냅샷으로 결정론적 복원한다 (방이 다르면 방도 전환). '원래대로/아까처럼' 처리용 — "
           "get_recent_context로 turn을 찾은 뒤 호출하라.",
           {"version": {"type": "integer", "description": "복원할 turn 번호"}}),
-    # ---------- viewer (2) ----------
+    # ---------- viewer (1) ----------
     _tool("ask_user",
           "배치 결과의 승인을 사용자에게 요청한다 (HITL 게이트). 실행을 마친 뒤 반드시 호출하라. "
-          "반환에 visual_check: failed가 오면 시각 점검이 문제를 찾은 것이다 — problems를 수정하고 다시 호출하라. "
           "approved=false면 feedback을 반영해 수정하라.",
           {"message": {"type": "string", "description": "무엇을 어떻게 배치했는지 요약한 승인 요청 문구"}}),
-    _tool("ask_clarification",
-          "입력이 부족하거나 애매할 때 사용자에게 되묻는다. 턴당 1회, 최대 2회까지만.", #최대 2회 제한
-          {"type": {"type": "string", "enum": ["missing_info", "ambiguous_intent"],
-                    "description": "missing_info=필수 정보 누락(인원 수, 방), ambiguous_intent=해석이 여러 개"},
-           "question": {"type": "string", "description": "사용자에게 물을 한 문장"},
-           "candidates": {"type": ["array", "null"], "items": {"type": "string"},
-                          "description": "ambiguous_intent일 때 해석 후보 목록"}}),
 ]
 
 HANDLERS = {
@@ -124,7 +117,6 @@ HANDLERS = {
     "commit_layout": context_tools.commit_layout,
     "revert_to": context_tools.revert_to,
     "ask_user": viewer_tools.ask_user,
-    "ask_clarification": viewer_tools.ask_clarification,
 }
 
 

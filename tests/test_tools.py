@@ -9,16 +9,15 @@ from services.scene import SceneState
 def setup(tmp_path):
     s = SceneState(session_path=os.path.join(str(tmp_path), "session.json"))
     s.load_scene("living_room")
-    tools.init(s, client=None)          # client 없음 → critic 건너뜀
+    tools.init(s, client=None)
     tools.STATE["auto_approve"] = True
     tools.STATE["intent"] = {"intent_type": "new_scene"}
     tools.STATE["utterance"] = "다리 아파"
-    tools.STATE["critic_rounds"] = 0
     return s
 
 
 def test_registry_schema():
-    assert len(registry.TOOLS) == 13
+    assert len(registry.TOOLS) == 12
     assert {t["name"] for t in registry.TOOLS} == set(registry.HANDLERS)
     for t in registry.TOOLS:
         p = t["parameters"]
@@ -64,11 +63,4 @@ def test_furniture_mapping():
     assert "available_activities" in miss
 
 
-def test_render_topdown(tmp_path):
-    s = setup(tmp_path)
-    s.transform("BOT 1", 90, 0, "테이블")
-    s.move("BOT 1", 200, 150, rot=45)
-    from services import render
-    p = os.path.join(str(tmp_path), "layout.png")
-    img = render.render_topdown(s.environment(), s.states(), path=p)
-    assert os.path.exists(p) and img.size[0] > 400
+

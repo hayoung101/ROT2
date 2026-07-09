@@ -11,7 +11,8 @@ from prompts import AGENT_PROMPT, INTENT_PROMPT, INTENT_SCHEMA, ROBOT_MECHANISM
 
 
 # 전사된 텍스트를 OpenAI LLM를 통해 의도 분석
-def ask_intent(client, usertext, prev_intent=None, room_furniture=None):
+def ask_intent(client, usertext, prev_intent=None, room_furniture=None,
+               recent_history=None):
     try:
         response = client.responses.create(
             model=config.OPENAI_MODEL,
@@ -25,6 +26,7 @@ def ask_intent(client, usertext, prev_intent=None, room_furniture=None):
                     "content": json.dumps({
                         "직전 상황(prev_intent)": prev_intent,
                         "방의 기존 가구(pre_existing_furniture)": room_furniture,
+                        "최근 history(recent_history)": recent_history,
                         "새 발화(utterance)": usertext,
                     }, ensure_ascii=False),
                 },
@@ -57,8 +59,6 @@ def run_agent(client, intent, utterance, max_steps=20):
 
     tools.STATE["intent"] = intent
     tools.STATE["utterance"] = utterance
-    tools.STATE["critic_rounds"] = 0   # 시각 자가검증 라운드 초기화 (턴 단위)
-    tools.STATE["clarify_count"] = 0   # 되묻기 한도 초기화 (턴당 2회)
 
     msgs = [
         {"role": "developer", "content": ROBOT_MECHANISM + AGENT_PROMPT},
@@ -84,8 +84,8 @@ def run_agent(client, intent, utterance, max_steps=20):
                 result = registry.dispatch(call.name, args)
             except Exception as e:   # tool 실패도 LLM에게 알려 스스로 수정하게
                 result = {"error": str(e)}
-            print("[tool] %s(%s) -> %s" % (call.name, call.arguments[:80],
-                                           str(result)[:100]))
+            print("[tool] %s(%s) -> %s" % (call.name, call.arguments,
+                                           json.dumps(result, ensure_ascii=False, default=str)))
             msgs.append({"type": "function_call_output", "call_id": call.call_id,
                          "output": json.dumps(result, ensure_ascii=False, default=str)})
     return "(중단: tool 루프 최대 단계 초과)"

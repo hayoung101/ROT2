@@ -28,7 +28,14 @@ def move_robot(robot, x, y, rot=None):
 
 
 def store_robot(robot):
-    st = _scene().store(robot)
+    sc = _scene()
+    before = next((s for s in sc.states() if s["robot"] == robot), None)
+    # 이미 도크에 정리된(inactive) 로봇이면 아무 것도 하지 않는다 — inactive는
+    # store로만 도달하므로 도크 복귀·패널0·초기화가 이미 끝난 상태다. 뷰어 push도 스킵.
+    if before is not None and before.get("active") == "inactive":
+        return {"robot": robot, "noop": True,
+                "note": "이미 도크에 정리되어 있어 변화 없음 — store 불필요"}
+    st = sc.store(robot)
     push_state()
     return st
 

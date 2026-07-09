@@ -3,13 +3,11 @@
 
 STATE = {
     "scene": None,        # SceneState 인스턴스
-    "client": None,       # OpenAI client (critic 호출용)
+    "client": None,       # OpenAI client
     "viewer": None,       # PopupViewer 인스턴스 (없으면 콘솔 fallback)
     "intent": None,       # 현재 턴의 의도층 출력
     "utterance": "",      # 현재 턴의 발화 원문
-    "critic_rounds": 0,   # 이번 턴의 시각 검증 라운드 수
     "auto_approve": False,  # 테스트용: ask_user 자동 승인
-    "auto_answer": None,    # 테스트용: ask_clarification 자동 답변
 }
 
 

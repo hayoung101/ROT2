@@ -103,6 +103,13 @@ class SceneState:
         self.save()
         return entry
 
+    def commit_if_changed(self, description, intent_type="new_scene", utterance=""):
+        """직전 커밋 이후 상태 변화가 없으면 재커밋하지 않고 마지막 엔트리를 반환.
+        승인 시 자동 커밋(ask_user)과 confirm/commit_layout의 중복 turn 증가를 막는다."""
+        if self.history and self.history[-1]["state"] == self.robots:
+            return self.history[-1]
+        return self.commit(description, intent_type, utterance)
+
     def revert_to(self, turn):
         """turn 번호의 스냅샷으로 결정론적 복원 (LLM 생성 스킵). 방이 다르면 방도 전환."""
         entry = next((h for h in self.history if h["turn"] == turn), None)

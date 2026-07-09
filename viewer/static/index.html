@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>로봇 가구 뷰어</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f4efe6;
+               font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; }
+  #wrap { display: flex; height: 100%; }
+  #view { flex: 2; position: relative; min-width: 0; }
+  #canvas { width: 100%; height: 100%; display: block; }
+  #subtitle { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+              max-width: 80%; background: rgba(0,0,0,.65); color: #fff;
+              padding: 8px 18px; border-radius: 20px; font-size: 15px;
+              display: none; z-index: 10; }
+  #status { position: absolute; left: 12px; bottom: 10px; color: #888;
+            font-size: 12px; z-index: 10; }
+
+  /* ---- 채팅 패널 (오른쪽 1/3) ---- */
+  #chat { flex: 1; min-width: 300px; max-width: 480px; display: flex;
+          flex-direction: column; background: #fbf8f1;
+          border-left: 1px solid #ded6c8; }
+  #chatHeader { padding: 12px 16px; color: #49717d; font-size: 14px;
+                font-weight: 600; border-bottom: 1px solid #ded6c8; }
+  #chatLog { flex: 1; overflow-y: auto; padding: 14px 12px;
+             display: flex; flex-direction: column; gap: 8px; }
+  .bubble { max-width: 85%; padding: 9px 13px; border-radius: 14px;
+            font-size: 14px; line-height: 1.5; color: #2b2f33;
+            white-space: pre-wrap; word-break: break-word; }
+  .user   { align-self: flex-end; background: #cce9ef; border-bottom-right-radius: 4px; }
+  .agent  { align-self: flex-start; background: #eee7da; border-bottom-left-radius: 4px; }
+  .system { align-self: center; background: none; color: #8a8173; font-size: 12px; }
+  .bubble .btns { margin-top: 8px; display: flex; gap: 6px; }
+  .bubble button { padding: 6px 12px; border: 0; border-radius: 8px;
+                   cursor: pointer; font-size: 13px; }
+  .btnOk { background: #2e7d32; color: #fff; }
+  .btnNo { background: #555; color: #fff; }
+  #chatInput { display: flex; gap: 8px; padding: 12px;
+               border-top: 1px solid #ded6c8; }
+  #msgInput { flex: 1; padding: 10px 12px; border-radius: 10px;
+              border: 1px solid #d7cebf; background: #fffdf8; color: #2b2f33;
+              font-size: 14px; outline: none; }
+  #msgInput:focus { border-color: #7fb9c9; }
+  #sendBtn { padding: 10px 16px; border: 0; border-radius: 10px;
+             background: #49717d; color: #fff; cursor: pointer; font-size: 14px; }
+  #micBtn { padding: 10px 14px; border: 0; border-radius: 10px;
+            background: #86aeb8; color: #fff; cursor: pointer; font-size: 15px;
+            user-select: none; }
+  #micBtn.rec { background: #c62828; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="wrap">
+  <div id="view">
+    <canvas id="canvas"></canvas>
+    <div id="subtitle"></div>
+    <div id="status">연결 중...</div>
+  </div>
+  <div id="chat">
+    <div id="chatHeader">로봇 가구 어시스턴트</div>
+    <div id="chatLog"></div>
+    <div id="chatInput">
+      <input id="msgInput" placeholder="입력하거나, 🎤(또는 스페이스바)를 누른 채 말하세요" autocomplete="off">
+      <button id="micBtn" title="누르고 있는 동안 녹음">🎤</button>
+      <button id="sendBtn">전송</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="/static/viewer.js"></script>
+</body>
+</html>

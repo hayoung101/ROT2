@@ -1,0 +1,75 @@
+{
+  "space": "kitchen",
+  "width": 400,
+  "depth": 250,
+  "dock": [
+    {
+      "x": 20,
+      "y": 20
+    },
+    {
+      "x": 80,
+      "y": 20
+    }
+  ],
+  "pre_existing_furniture": [
+    {
+      "id": "sink_1",
+      "label": "sink_counter",
+      "x": 150,
+      "y": 220,
+      "w": 280,
+      "d": 60,
+      "rot": 180,
+      "corners": [
+        [
+          290,
+          250
+        ],
+        [
+          10,
+          250
+        ],
+        [
+          10,
+          190
+        ],
+        [
+          290,
+          190
+        ]
+      ],
+      "model": "kitchen_counter.glb",
+      "h": 90
+    },
+    {
+      "id": "dining_table_1",
+      "label": "dining_table",
+      "x": 280,
+      "y": 100,
+      "w": 120,
+      "d": 80,
+      "rot": 0,
+      "corners": [
+        [
+          220,
+          60
+        ],
+        [
+          340,
+          60
+        ],
+        [
+          340,
+          140
+        ],
+        [
+          220,
+          140
+        ]
+      ],
+      "model": "dining_table.glb",
+      "h": 72
+    }
+  ]
+}

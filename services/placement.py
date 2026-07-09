@@ -1,0 +1,190 @@
+# -*- coding: utf-8 -*-
+"""배치 탐색 + 종합 검증 (순수 계산, 상태 없음).
+
+find_placement — 좌표 찝기의 역할 분담:
+  코드가 '가능한 자리'를 계산해 의미 태그(tag)와 주변 여유(clearance)를 붙여 제안하고,
+  LLM은 활동의 성격과 tag를 맞춰 '좋은 자리'를 고른다 (연속 공간 선택 → 객관식).
+  user 좌표는 쓰지 않는다 — 기준은 기존 가구와의 조합 + 가구를 뺀 가용 공간.
+
+- near에 가구 id/label(또는 로봇 이름)을 주면: 그 앵커에 인접한 후보 (tag: <id>_front/_side/_back)
+- near가 None이면: 방 전체 조사 — 각 가구의 앞/옆 + 가장 넓은 빈 공간(open_area) + 벽가(wall_*)
+- feasibility: check_feasibility tool의 몸체 (물리 + 연결 기하만. 조화는 LLM+HITL-2 몫)
+
+가구의 '앞' 규약: rot=0일 때 앞면은 +y. front 벡터 = (0,1)을 rot만큼 회전 = (-sin rot, cos rot).
+(예: 소파 rot 180 → 앞면 -y. scene 시드와 뷰어도 이 규약을 따를 것)
+"""
+import math
+
+from services import collision
+
+CLEARANCE_CM = 5.0        # 앵커 가장자리와 후보 사이 기본 여유
+AVOID_MARGIN_CM = 40.0    # avoid 대상과의 최소 이격
+STEP_DEG = 15             # 앵커 링 탐색 방향 간격
+GRID_CM = 20              # open_area 격자 간격
+OPEN_AREA_MIN_APART = 80  # open_area 후보끼리 최소 거리
+
+#가구가 바라보는 방향
+def _front_vec(rot):
+    th = math.radians(rot or 0)
+    return (-math.sin(th), math.cos(th))
+
+
+def _anchor_geometry(scene, near, robot_states=None):
+    """near(가구 id·label / 로봇 이름) → (중심점, OBB rect, rot). 못 찾으면 (None,None,None)."""
+    for f in (scene or {}).get("pre_existing_furniture", []):
+        if f.get("id") == near or f.get("label") == near:
+            return (f["x"], f["y"]), collision.furniture_rect(f), f.get("rot", 0)
+    for st in robot_states or []:
+        if st.get("robot") == near:
+            return (st["x"], st["y"]), (st["x"], st["y"], collision.BODY,
+                                        collision.BODY, st.get("rot", 0)), st.get("rot", 0)
+    return None, None, None
+
+
+def _half_extent(rect, direction):
+    """rect 중심에서 direction 방향으로의 support 거리 (그 방향 반폭)."""
+    cx, cy = rect[0], rect[1]
+    return max((px - cx) * direction[0] + (py - cy) * direction[1]
+               for px, py in collision.rect_corners(*rect))
+
+
+def _ok(x, y, hw, hd, w, d, rects, avoid_pts):
+    if not (hw <= x <= w - hw and hd <= y <= d - hd):
+        return False
+    proxy = (x, y, 2 * hw, 2 * hd, 0)
+    if any(collision.rects_collide(proxy, rc) for rc in rects):
+        return False
+    if any(math.hypot(x - px, y - py) < max(hw, hd) + AVOID_MARGIN_CM for px, py in avoid_pts):
+        return False
+    return True
+
+#주변 여유 계산
+def _clearance(x, y, hw, hd, w, d, rects):
+    """후보 주변 여유(cm): 벽·장애물까지의 최소 간격."""
+    wall = min(x - hw, y - hd, w - (x + hw), d - (y + hd))
+    proxy = (x, y, 2 * hw, 2 * hd, 0)
+    gaps = [collision.rect_gap(proxy, rc) for rc in rects]
+    g = min(gaps) if gaps else wall
+    return int(round(max(0.0, min(wall, g))))
+
+#로봇 배치 후보 묶어서 내보내기
+def _cand(x, y, tag, clearance, rot_suggest, order):
+    return {"x": round(x), "y": round(y), "tag": tag,
+            "clearance": clearance, "rot_suggest": round(rot_suggest) % 360,
+            "_ord": order}
+
+
+def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=(), k=6,
+                   footprint_w=None, footprint_d=None):
+    """유효 후보 좌표 제안. 반환: [{"x","y","tag","clearance","rot_suggest"}].
+
+    footprint_radius: 배치할 구성의 대략 반경(cm) — 패널 펼침 포함해 LLM이 추정.
+    rot_suggest: 그 자리에서 앵커(또는 방 중심)를 바라보는 방향(도)."""
+    w, d = scene["width"], scene["depth"]
+    # 정사각 proxy(반경) 또는 직사각 proxy(w×d — 풀확장 100×40처럼 길쭉한 구성용)
+    if footprint_w is not None and footprint_d is not None:
+        hw, hd = float(footprint_w) / 2, float(footprint_d) / 2
+    else:
+        hw = hd = float(footprint_radius if footprint_radius is not None else 29)
+    furn = scene.get("pre_existing_furniture", [])
+    rects_all = [collision.furniture_rect(f) for f in furn]
+    for st in fixed_states or []:
+        rects_all += collision.footprint_rects(st)
+    avoid_pts = []
+    for item in avoid or ():
+        pt, _, _ = _anchor_geometry(scene, item, fixed_states)
+        if pt:
+            avoid_pts.append(pt)
+
+    out = []
+    if near is not None:
+        # ---- 앵커 모드: 지정 가구/로봇 주변 링 탐색 ----
+        anchor, arect, arot = _anchor_geometry(scene, near, fixed_states)
+        if anchor is None:
+            return []
+        ax, ay = anchor
+        fv = _front_vec(arot)
+        rects_excl = [rc for rc in rects_all if rc != arect]
+        for deg in range(0, 360, STEP_DEG):
+            th = math.radians(deg)
+            dirv = (math.cos(th), math.sin(th))
+            dist = _half_extent(arect, dirv) + (hw * abs(dirv[0]) + hd * abs(dirv[1])) + CLEARANCE_CM
+            x, y = ax + dirv[0] * dist, ay + dirv[1] * dist
+            if not _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
+                continue
+            dot = dirv[0] * fv[0] + dirv[1] * fv[1]
+            side = "front" if dot > 0.5 else ("back" if dot < -0.5 else "side")
+            out.append(_cand(x, y, "%s_%s" % (near, side),
+                             _clearance(x, y, hw, hd, w, d, rects_excl),
+                             math.degrees(math.atan2(ay - y, ax - x)),
+                             {"front": 0, "side": 1, "back": 2}[side]))
+    else:
+        # ---- 조사 모드: 가구 앞/옆 + open_area + 벽가 ----
+        for f in furn:
+            frect = collision.furniture_rect(f)
+            fx, fy = f["x"], f["y"]
+            fv = _front_vec(f.get("rot", 0))
+            pv = (-fv[1], fv[0])
+            rects_excl = [rc for rc in rects_all if rc != frect]
+            for side, dirv in (("front", fv), ("side", pv), ("side", (-pv[0], -pv[1]))):
+                dist = _half_extent(frect, dirv) + (hw * abs(dirv[0]) + hd * abs(dirv[1])) + CLEARANCE_CM
+                x, y = fx + dirv[0] * dist, fy + dirv[1] * dist
+                if not _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
+                    continue
+                out.append(_cand(x, y, "%s_%s" % (f.get("id"), side),
+                                 _clearance(x, y, hw, hd, w, d, rects_excl),
+                                 math.degrees(math.atan2(fy - y, fx - x)),
+                                 0 if side == "front" else 2))
+        # 가장 넓은 빈 공간 (거리변환 근사: 격자점별 최소 간격의 최대점)
+        opens = []
+        for i in range(1, int(w // GRID_CM)):
+            for j in range(1, int(d // GRID_CM)):
+                x, y = i * GRID_CM, j * GRID_CM
+                if _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
+                    opens.append((_clearance(x, y, hw, hd, w, d, rects_all), x, y))
+        opens.sort(reverse=True)
+        picked = []
+        for c, x, y in opens:
+            if all(math.hypot(x - px, y - py) >= OPEN_AREA_MIN_APART for _, px, py in picked):
+                picked.append((c, x, y))
+            if len(picked) == 2:
+                break
+        for c, x, y in picked:
+            out.append(_cand(x, y, "open_area", c,
+                             math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 1))
+        # 벽가
+        walls = (("wall_south", lambda t: (t * w, hd + CLEARANCE_CM)),
+                 ("wall_north", lambda t: (t * w, d - hd - CLEARANCE_CM)),
+                 ("wall_west", lambda t: (hw + CLEARANCE_CM, t * d)),
+                 ("wall_east", lambda t: (w - hw - CLEARANCE_CM, t * d)))
+        for name, fpos in walls:
+            for t in (0.25, 0.5, 0.75):
+                x, y = fpos(t)
+                if _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
+                    out.append(_cand(x, y, name, _clearance(x, y, hw, hd, w, d, rects_all),
+                                     math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 3))
+
+    out.sort(key=lambda c: (c["_ord"], -c["clearance"]))
+    for c in out:
+        c.pop("_ord", None)
+    return out[:k]
+#추천하는 배치 구역을 목록으로 내보냄
+
+# ---------- 종합 검증 (check_feasibility의 몸체) ----------
+
+def feasibility(robot_states, scene, connections=None):
+    #물리 검증
+    issues = collision.validate_layout(robot_states, scene)
+    #연결 검증
+    by_name = {st.get("robot"): st for st in robot_states}
+    for con in connections or []:
+        a, b = by_name.get(con.get("robot_a")), by_name.get(con.get("robot_b"))
+        if a is None or b is None:
+            issues.append({"type": "connection_unknown_robot", "connection": con})
+            continue
+        if not collision.panels_touching(a, con.get("side_a", "right"),
+                                         b, con.get("side_b", "right")):
+            issues.append({"type": "connection_gap",
+                           "robots": [a.get("robot"), b.get("robot")]})
+    return {"feasible": not issues, "issues": issues}
+#issue가 있으면 feasible이 false/어떤 issue인지 반환

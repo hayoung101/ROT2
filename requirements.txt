@@ -1,0 +1,10 @@
+# 로봇 가구 LLM Agent — 의존성
+openai
+groq
+python-dotenv
+SpeechRecognition   # 마이크 녹음 (Windows 음성 모드)
+PyAudio             # sr.Microphone 백엔드
+Pillow              # 시각 자가검증 렌더
+fastapi             # 뷰어 서버
+uvicorn[standard]     # WebSocket 지원 포함
+pytest              # 테스트 (선택)

@@ -1,0 +1,46 @@
+{
+  "space": "balcony",
+  "width": 400,
+  "depth": 100,
+  "dock": [
+    {
+      "x": 20,
+      "y": 50
+    },
+    {
+      "x": 80,
+      "y": 50
+    }
+  ],
+  "pre_existing_furniture": [
+    {
+      "id": "plant_1",
+      "label": "plant",
+      "x": 370,
+      "y": 50,
+      "w": 30,
+      "d": 30,
+      "rot": 0,
+      "corners": [
+        [
+          355,
+          35
+        ],
+        [
+          385,
+          35
+        ],
+        [
+          385,
+          65
+        ],
+        [
+          355,
+          65
+        ]
+      ],
+      "model": "plant.glb",
+      "h": 90
+    }
+  ]
+}

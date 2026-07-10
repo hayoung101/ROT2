@@ -16,7 +16,23 @@ def get_environment():
 
 
 def get_recent_context(n):
-    return _scene().recent(int(n))
+    """최근 n턴을 슬림하게 반환 — 메타 5필드 + 로봇당 한 줄 요약.
+    정확한 복원은 revert_to(코드)가 하므로 LLM에겐 '무슨 상황이었는지'면 충분하다."""
+    out = []
+    for h in _scene().recent(int(n)):
+        robots = []
+        for st in h["state"].values():
+            if st.get("active") == "inactive":
+                robots.append("%s: inactive dock" % st["robot"])
+            else:
+                robots.append("%s: active (%d,%d) rot%d L%d/R%d '%s'"
+                              % (st["robot"], st["x"], st["y"], st.get("rot", 0),
+                                 st["panel_left"], st["panel_right"],
+                                 st.get("furniture", "")))
+        out.append({"turn": h["turn"], "space": h["space"],
+                    "intent_type": h["intent_type"], "utterance": h["utterance"],
+                    "description": h["description"], "robots": robots})
+    return out
 
 
 def commit_layout(description):
@@ -24,11 +40,11 @@ def commit_layout(description):
     직전 커밋 이후 변화가 없으면 중복 커밋하지 않고 no-op으로 반환."""
     sc = _scene()
     intent = STATE.get("intent") or {}
-    entry = sc.commit_if_changed(description,
-                                 intent.get("intent_type", "new_scene"),
-                                 STATE.get("utterance", ""))
-    noop = bool(sc.history) and sc.history[-1] is entry and entry["description"] != description
-    return {"turn": entry["turn"], "description": entry["description"], "noop": noop}
+    entry, changed = sc.commit_if_changed(description,
+                                          intent.get("intent_type", "new_scene"),
+                                          STATE.get("utterance", ""))
+    return {"turn": entry["turn"], "description": entry["description"],
+            "noop": not changed}
 
 
 def revert_to(version):

@@ -13,11 +13,11 @@ def _commit_on_approval(message):
     if sc is None:
         return
     intent = STATE.get("intent") or {}
-    entry = sc.commit_if_changed(message, intent.get("intent_type", "new_scene"),
-                                 STATE.get("utterance", ""))
+    entry, changed = sc.commit_if_changed(message, intent.get("intent_type", "new_scene"),
+                                          STATE.get("utterance", ""))
     viewer = STATE.get("viewer")
-    if viewer is not None:
-        viewer.chat("system", "배치가 확정되었습니다 (turn %d)" % entry["turn"])
+    if changed and viewer is not None:   # 실제로 커밋됐을 때만 안내 (멱등). turn 번호는 내부 개념 — 노출 금지
+        viewer.chat("system", "배치가 확정되었습니다.")
 
 
 def ask_user(message):

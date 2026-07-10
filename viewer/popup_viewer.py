@@ -35,6 +35,8 @@ class PopupViewer:
         self.clients = set()
         self.stt_handler = None           # (bytes, mime) -> text. main이 주입
         self.loop = None
+        self.pending = None               # 미해결 HITL 요청 (재접속 시 재전송 → F5 데드락 방지)
+        self._req_seq = 0                 # 요청 id — 브라우저가 중복 수신을 걸러낸다
         self.app = self._create_app()
 
     # ---------- FastAPI ----------
@@ -68,6 +70,9 @@ class PopupViewer:
             await websocket.send_text(json.dumps(
                 {"type": "scene_change", "duration": 0, **self.snapshot},
                 ensure_ascii=False, default=str))
+            if self.pending:   # 승인/되묻기 대기 중 재접속(F5) → 요청을 다시 그린다
+                await websocket.send_text(json.dumps(
+                    self.pending, ensure_ascii=False, default=str))
             try:
                 while True:
                     data = json.loads(await websocket.receive_text())
@@ -145,14 +150,22 @@ class PopupViewer:
     def request_approval(self, message):
         with self.feedback_q.mutex:
             self.feedback_q.queue.clear()
-        self._broadcast({"type": "approval_request", "message": message})
+        self._req_seq += 1
+        self.pending = {"type": "approval_request", "message": message,
+                        "req_id": self._req_seq}
+        self._broadcast(self.pending)
         data = self.feedback_q.get()   # 사용자가 버튼 누를 때까지 대기
+        self.pending = None
         return {"approved": bool(data.get("approved")),
                 "feedback": data.get("feedback", "")}
 
     def ask(self, question, candidates=None):
         with self.clarify_q.mutex:
             self.clarify_q.queue.clear()
-        self._broadcast({"type": "clarify_request", "question": question,
-                         "candidates": candidates or []})
-        return self.clarify_q.get().get("answer", "")
+        self._req_seq += 1
+        self.pending = {"type": "clarify_request", "question": question,
+                        "candidates": candidates or [], "req_id": self._req_seq}
+        self._broadcast(self.pending)
+        answer = self.clarify_q.get().get("answer", "")
+        self.pending = None
+        return answer

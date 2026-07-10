@@ -7,6 +7,7 @@ python main.py --noview   # 뷰어 없이 콘솔 타이핑 (개발용)
 """
 import queue
 import sys
+import traceback
 
 from openai import OpenAI
 
@@ -51,11 +52,25 @@ def _ask_clarification(viewer, question, candidates=None):
     return input("답변: ").strip()
 
 
+def _pick_revert_target(scene_state):
+    """현재 상태와 '다른' 가장 최근 커밋 turn — 결정론적 '되돌리기' 대상.
+    (승인 시 자동 commit되므로 가장 최근 커밋 == 현재 상태인 경우가 대부분이라,
+    최신 커밋으로 복원하면 no-op이 된다. 실제로 상태가 바뀌는 turn을 고른다.)"""
+    for h in reversed(scene_state.history):
+        if h["state"] != scene_state.robots:
+            return h["turn"]
+    return None
+
+
 def _do_revert(scene_state, viewer, intent):
     """revert를 결정론적으로 처리 (형태층 LLM 스킵). 대상 turn은 의도층이 고른다."""
     target = intent.get("revert_to_turn")
-    if target is None and scene_state.history:
-        target = scene_state.history[-1]["turn"]   # fallback: 가장 최근 커밋
+    if target is not None:   # LLM이 고른 turn이 현재 상태와 같으면(무변화) 안전망으로 재선택
+        entry = next((h for h in scene_state.history if h["turn"] == int(target)), None)
+        if entry is not None and entry["state"] == scene_state.robots:
+            target = None
+    if target is None:
+        target = _pick_revert_target(scene_state)   # fallback: 현재와 다른 가장 최근 커밋
     before_space = scene_state.space
     entry = scene_state.revert_to(int(target)) if target is not None else None
     if entry is None:
@@ -98,6 +113,13 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
         if not intent:
             return last_intent
 
+    # 되묻기 한도(2회) 도달 후에도 미해소면: 더 묻지 않고 LLM이 남은 정보를 추론해 채우게 한다.
+    if intent.get("needs_clarification"):
+        text = text + " / (되묻기 한도 도달)"
+        intent = ask_intent(openai_client, text, last_intent,
+                            room_furniture=scene_state.furniture(),
+                            recent_history=_slim_history(scene_state)) or intent
+
     confirmation = intent.get("confirmation_message", "")
     it = intent.get("intent_type")
 
@@ -119,12 +141,11 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
             viewer.chat("agent", confirmation)
 
     if it == "confirm":   # 승인 → 스냅샷 확정 (변화 없으면 재커밋 안 함)
-        prev_turn = scene_state.turn
-        entry = scene_state.commit_if_changed("사용자 승인: " + text, "confirm", text)
-        if scene_state.turn > prev_turn:   # 새로 확정됐을 때만 안내
+        entry, changed = scene_state.commit_if_changed("사용자 승인: " + text, "confirm", text)
+        if changed:   # 새로 확정됐을 때만 안내. turn 번호는 내부 개념 — 채팅에 노출하지 않는다
             print("[commit] turn %d 확정" % entry["turn"])
             if viewer:
-                viewer.chat("system", "배치가 확정되었습니다 (turn %d)" % entry["turn"])
+                viewer.chat("system", "배치가 확정되었습니다.")
         return intent
 
     if it == "revert":   # 결정론적 복원 (형태층 LLM 스킵)
@@ -173,14 +194,22 @@ def main():
                 text = viewer.utterance_q.get(timeout=0.5)
             except queue.Empty:
                 continue
-            last_intent = handle(openai_client, scene_state, text, last_intent)
+            try:                           # 발화 하나의 실패가 세션을 죽이지 않게
+                last_intent = handle(openai_client, scene_state, text, last_intent)
+            except Exception:
+                traceback.print_exc()
+                viewer.chat("system", "처리 중 오류가 발생했어요. 다시 말씀해 주세요.")
     else:
         print("콘솔 모드. 빈 입력 또는 Ctrl+C로 종료.")
         while True:
             text = input("\n발화> ").strip()
             if not text:
                 break
-            last_intent = handle(openai_client, scene_state, text, last_intent)
+            try:
+                last_intent = handle(openai_client, scene_state, text, last_intent)
+            except Exception:
+                traceback.print_exc()
+                print("[error] 처리 실패 — 다음 발화로 계속")
 
 
 if __name__ == "__main__":

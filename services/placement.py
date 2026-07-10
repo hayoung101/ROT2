@@ -181,6 +181,63 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
     return out[:k]
 #추천하는 배치 구역을 목록으로 내보냄
 
+
+def find_connect(scene, all_states, anchor_name, mode="face", side="both",
+                 anchor_panel=None, moving_panel=None, moving_robot=None):
+    """두 대 조합의 정밀 연결 좌표 — 코드가 계산한다 (LLM이 삼각함수를 풀지 않게).
+
+    mode "face": 마주보고 패널 맞대기. rot 차 180°,
+                 중심 거리 = 본체 40 + 30·sinθa + 30·sinθb. panels_touching 통과 보장.
+                 rot 차 180°에서는 같은 이름의 패널끼리 맞닿는다 → moving_side = 앵커 side.
+    mode "side": 나란히 붙이기. rot 동일, 고정 패널 측면(앞/뒤)으로 본체 맞대기(거리 40).
+    side: 앵커의 어느 패널 쪽(left/right)에 붙일지. "both"면 양쪽 후보.
+    반환 후보: {"x","y","rot","tag","moving_side"} — 그대로 move_robot에 쓰면 된다."""
+    anchor = next((s for s in all_states or [] if s.get("robot") == anchor_name), None)
+    if anchor is None:
+        return []
+    w, d = scene["width"], scene["depth"]
+    ax, ay, arot = anchor["x"], anchor["y"], anchor.get("rot", 0)
+    th = math.radians(arot)
+    u = (math.cos(th), math.sin(th))            # 앵커 panel_right 방향 (규약: collision.py)
+    perp = (-u[1], u[0])                        # 고정 패널(앞/뒤) 방향
+    obstacles = [collision.furniture_rect(f)
+                 for f in scene.get("pre_existing_furniture", [])]
+    for s in all_states:
+        if s.get("robot") not in (anchor_name, moving_robot):
+            obstacles += collision.footprint_rects(s)
+
+    out = []
+    if mode == "face":
+        pa = collision.panel_protrusion(anchor_panel if anchor_panel is not None else 90)
+        pm = collision.panel_protrusion(moving_panel if moving_panel is not None else 90)
+        dist = collision.BODY + pa + pm
+        sides = ("left", "right") if side not in ("left", "right") else (side,)
+        for sd in sides:
+            sign = 1 if sd == "right" else -1
+            px, py = ax + sign * u[0] * dist, ay + sign * u[1] * dist
+            mv = {"x": px, "y": py, "rot": (arot + 180) % 360,
+                  "panel_left": 0, "panel_right": 0}
+            mv["panel_%s" % sd] = moving_panel if moving_panel is not None else 90
+            if collision.out_of_bounds(mv, w, d):
+                continue
+            if any(collision.rects_collide(r, rc)
+                   for r in collision.footprint_rects(mv) for rc in obstacles):
+                continue
+            out.append({"x": round(px), "y": round(py), "rot": (arot + 180) % 360,
+                        "tag": "connect_face_%s" % sd, "moving_side": sd})
+    else:   # side-by-side (나란히): 앵커의 앞/뒤로 본체를 붙인다 (패널 축은 비워 둠)
+        for name, sign in (("front", 1), ("back", -1)):
+            px, py = ax + sign * perp[0] * collision.BODY, ay + sign * perp[1] * collision.BODY
+            mv = {"x": px, "y": py, "rot": arot, "panel_left": 0, "panel_right": 0}
+            if collision.out_of_bounds(mv, w, d):
+                continue
+            if any(collision.rects_collide(r, rc)
+                   for r in collision.footprint_rects(mv) for rc in obstacles):
+                continue
+            out.append({"x": round(px), "y": round(py), "rot": arot,
+                        "tag": "connect_side_%s" % name, "moving_side": None})
+    return out
+
 # ---------- 종합 검증 (check_feasibility의 몸체) ----------
 
 def feasibility(robot_states, scene, connections=None):

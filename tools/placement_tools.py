@@ -4,17 +4,29 @@ import json
 import os
 
 from tools import STATE, push_state
-from services import placement
+from services import collision, placement
 
 
 def _scene():
     return STATE["scene"]
 
 
+def _with_issues(st):
+    """실행 직후 코드가 자동 검증한다 (LLM의 check_feasibility 호출에 의존하지 않는 보장 레이어).
+    문제가 있으면 결과에 issues(+fix 힌트)를 실어 LLM이 즉시 자가수정하게 한다."""
+    sc = _scene()
+    issues = collision.validate_layout(sc.states(), sc.environment())
+    if issues:
+        st = dict(st)
+        st["issues"] = issues
+        st["warning"] = "실행은 됐지만 위 issues가 남아 있다 — fix 힌트대로 move_robot로 해소하라"
+    return st
+
+
 def transform_robot(robot, panel_left, panel_right, furniture):
     st = _scene().transform(robot, panel_left, panel_right, furniture)
     push_state()
-    return st
+    return _with_issues(st)
 
 
 def move_robot(robot, x, y, rot=None):
@@ -24,7 +36,7 @@ def move_robot(robot, x, y, rot=None):
     # 애니메이션 시간 = 이동 거리 비례 (30cm/s 감각, 0.8~4초 clamp) — 순간이동 방지
     dist = math.hypot(st["x"] - before["x"], st["y"] - before["y"]) if before else 0
     push_state(duration=max(0.8, min(4.0, dist / 30.0)))
-    return st
+    return _with_issues(st)
 
 
 def store_robot(robot):
@@ -52,12 +64,32 @@ def check_feasibility(robots, connections=None):
 
 
 def find_placement(footprint_radius=None, near=None, avoid=None,
-                   footprint_w=None, footprint_d=None, moving_robot=None):
+                   footprint_w=None, footprint_d=None, moving_robot=None,
+                   connect=None):
     sc = _scene()
+    if connect:   # 두 대 조합의 정밀 연결 좌표 
+        cands = placement.find_connect(
+            sc.environment(), sc.states(), near,
+            mode=connect.get("mode", "face"), side=connect.get("side", "both"),
+            anchor_panel=connect.get("anchor_panel"),
+            moving_panel=connect.get("moving_panel"), moving_robot=moving_robot)
+        if not cands:
+            return {"candidates": [], "note":
+                    "연결 후보 없음 — near에 앵커 로봇 이름을 정확히 줬는지, 그 자리가 벽·가구에 "
+                    "막히지 않았는지 확인하라 (앵커를 먼저 옮긴 뒤 재시도). 좌표를 직접 계산하지 마라."}
+        return {"candidates": cands, "note":
+                "x·y·rot을 그대로 move_robot에 쓰라. face면 앵커의 해당 쪽 패널을 anchor_panel로, "
+                "옮긴 로봇의 moving_side 패널을 moving_panel로 열어야 연결이 성립한다 "
+                "(둘 다 transform_robot으로) — 거리·각도를 직접 계산하지 마라."}
     fixed = [s for s in sc.states() if s["robot"] != moving_robot]
-    return placement.find_placement(sc.environment(), fixed, footprint_radius,
-                                    near, avoid or (), footprint_w=footprint_w,
-                                    footprint_d=footprint_d)
+    out = placement.find_placement(sc.environment(), fixed, footprint_radius,
+                                   near, avoid or (), footprint_w=footprint_w,
+                                   footprint_d=footprint_d)
+    if not out:
+        return {"candidates": [], "note":
+                "유효 후보 없음 — near id가 정확한지 get_environment로 확인하고, footprint를 "
+                "줄이거나 조건을 바꿔 재시도하라. 좌표를 직접 지어내지 마라."}
+    return out
 
 
 def furniture_mapping(activity):

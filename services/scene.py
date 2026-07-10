@@ -45,7 +45,7 @@ class SceneState:
         if idx < len(docks):
             dx, dy = docks[idx]["x"], docks[idx]["y"]   # 방별 도크가 있으면 우선
         else:
-            dx, dy = config.home_for(name)              # 기본: config.HOME_DOCKS
+            dx, dy = config.home_for(name)              # 기본: home_for()가 원점 구석 기준 자동 계산
         return {"robot": name, "active": "inactive", "x": dx, "y": dy, "rot": 0,
                 "panel_left": 0, "panel_right": 0, "furniture": "none"}
 
@@ -104,11 +104,12 @@ class SceneState:
         return entry
 
     def commit_if_changed(self, description, intent_type="new_scene", utterance=""):
-        """직전 커밋 이후 상태 변화가 없으면 재커밋하지 않고 마지막 엔트리를 반환.
-        승인 시 자동 커밋(ask_user)과 confirm/commit_layout의 중복 turn 증가를 막는다."""
+        """직전 커밋 이후 상태 변화가 없으면 재커밋하지 않는다.
+        반환: (entry, changed) — changed=False면 기존 마지막 엔트리 (커밋 안 됨).
+        호출부가 커밋 여부를 역추론하지 않게 플래그를 직접 준다."""
         if self.history and self.history[-1]["state"] == self.robots:
-            return self.history[-1]
-        return self.commit(description, intent_type, utterance)
+            return self.history[-1], False
+        return self.commit(description, intent_type, utterance), True
 
     def revert_to(self, turn):
         """turn 번호의 스냅샷으로 결정론적 복원 (LLM 생성 스킵). 방이 다르면 방도 전환."""

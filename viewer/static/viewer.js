@@ -243,6 +243,7 @@ class RobotView {
     this.cur = { x: 0, y: 0, rot: 0, pl: 0, pr: 0 };
     this.tgt = { ...this.cur };
     this.speed = 1;
+    this.dim = 1;            // inactive 흐림 계수 — 비동기 GLB 스왑 후에도 재적용
     scene3.add(this.rig);
   }
   setTarget(st, duration) {
@@ -250,10 +251,13 @@ class RobotView {
                  pl: st.panel_left || 0, pr: st.panel_right || 0 };
     this.speed = duration > 0 ? 1 / duration : 1e6;
     if (duration <= 0) this.cur = { ...this.tgt };
+    this.dim = st.active === 'inactive' ? .55 : 1;
     if (USE_GLB) this.swapGlb(`${this.tgt.pl}x${this.tgt.pr}`);
-    const dim = st.active === 'inactive' ? .55 : 1;
+    this.applyDim();
+  }
+  applyDim() {
     this.rig.traverse(o => {
-      if (o.material) { o.material.transparent = true; o.material.opacity = .95 * dim; }
+      if (o.material) { o.material.transparent = true; o.material.opacity = .95 * this.dim; }
     });
   }
   async swapGlb(key) {
@@ -287,6 +291,7 @@ class RobotView {
     });
     this.rig.add(this.glbNode);
     this.fallback.visible = false;
+    this.applyDim();   // 새 재질은 불투명 기본값 — 스왑 완료 시 dim 재적용 (inactive 흐림 유지)
   }
   tick(dt) {
     const k = Math.min(1, dt * this.speed * 1.6);
@@ -456,6 +461,7 @@ addEventListener('keyup', e => {
 // ---------- WebSocket ----------
 let ws;
 let lastSpace = null;   // 마지막으로 라벨을 그린 방 (재연결 시 중복 라벨 방지)
+let lastReqId = null;   // 마지막으로 그린 HITL 요청 id (같은 소켓 세션 내 중복 방지)
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => $('status').textContent = '연결됨';
@@ -479,11 +485,17 @@ function connect() {
     } else if (m.type === 'chat') {
       addBubble(m.who || 'agent', m.text);
     } else if (m.type === 'approval_request') {
-      addApproval(m.message);
+      if (m.req_id == null || m.req_id !== lastReqId) {   // 재접속 재전송 시 중복 방지
+        if (m.req_id != null) lastReqId = m.req_id;
+        addApproval(m.message);
+      }
     } else if (m.type === 'clarify_request') {
-      addBubble('agent', m.question +
-        (m.candidates?.length ? '\n(후보: ' + m.candidates.join(', ') + ')' : ''));
-      pending = 'clarify';
+      if (m.req_id == null || m.req_id !== lastReqId) {
+        if (m.req_id != null) lastReqId = m.req_id;
+        addBubble('agent', m.question +
+          (m.candidates?.length ? '\n(후보: ' + m.candidates.join(', ') + ')' : ''));
+        pending = 'clarify';
+      }
     }
   };
 }

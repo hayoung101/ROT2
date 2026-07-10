@@ -24,14 +24,15 @@ MAX_COMBINE = 2          # 조합 가능한 최대 로봇 수
 # 확정: 단일 기종 2대
 ROBOT_NAMES = ("BOT 1", "BOT 2")
 
-# 미사용(inactive) 로봇의 홈 도크: 절대 좌표가 아니라 '벽에서 얼마' 방식으로 계산한다.
-# 원점 구석(0,0)의 두 벽에 본체를 붙이고, 같은 벽(y=0)을 따라 나란히 정박.
+# 미사용(inactive) 로봇의 홈 도크 — 우선순위: scene JSON의 "dock" 필드가 있으면 그쪽이
+# 우선이고, home_for()는 dock이 없는 방을 위한 fallback이다 (scene.py._dock_state 참고).
+# fallback 계산: 원점 구석(0,0)의 두 벽에 본체를 붙이고, 같은 벽(y=0)을 따라 나란히 정박.
 # 방 크기와 무관하게 성립: x = 반폭 + i×(본체폭 + 간격), y = 반폭.
 DOCK_GAP_CM = 20   # 도크 간 여유
 
 
 def home_for(name):
-    """로봇 이름 → 홈 도크 좌표 (원점 구석 벽 기준 자동 계산)."""
+    """로봇 이름 → 홈 도크 좌표 (scene JSON에 dock이 없을 때의 fallback — 원점 구석 벽 기준 자동 계산)."""
     try:
         idx = ROBOT_NAMES.index(name)
     except ValueError:

@@ -118,6 +118,16 @@ def panel_rect(state, side):
     return (x + off * math.cos(th), y + off * math.sin(th), p, BODY, rot)
 
 
+def _labeled_rects(state):
+    """(label, rect) 목록 — label: 'body'/'left'/'right'. 연결 자동 감지·제외 판정용."""
+    out = [("body", (state["x"], state["y"], BODY, BODY, state.get("rot", 0)))]
+    for side in ("left", "right"):
+        r = panel_rect(state, side)
+        if r is not None:
+            out.append((side, r))
+    return out
+
+
 def footprint_bbox(state):
     xs, ys = [], []
     for r in footprint_rects(state):
@@ -245,7 +255,19 @@ def validate_layout(robots, scene, slack=DEFAULT_SLACK):
                                                % (st.get("robot"), ax * depth, ay * depth)}})
     for i in range(len(robots)):
         for j in range(i + 1, len(robots)):
-            pen = _worst_overlap(footprint_rects(robots[i]), footprint_rects(robots[j]), slack)
+            a, b = robots[i], robots[j]
+            # 맞닿음 조건(±tol·정렬)을 만족하는 패널 쌍은 '연결'로 보고 충돌에서 제외 (자동 감지).
+            # slack(2cm) < tol(3cm) 구간에서 연결이 robot_overlap으로 오판되는 것을 막는다.
+            connected = {(sa, sb) for sa in ("left", "right") for sb in ("left", "right")
+                         if panels_touching(a, sa, b, sb)}
+            pen = None
+            for na, ra in _labeled_rects(a):
+                for nb, rb in _labeled_rects(b):
+                    if (na, nb) in connected:
+                        continue
+                    depth, axis = obb_penetration(ra, rb)
+                    if depth > slack and (pen is None or depth > pen[0]):
+                        pen = (depth, axis)
             if pen:
                 depth, (ax, ay) = pen
                 mover = robots[i].get("robot")

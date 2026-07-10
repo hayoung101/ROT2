@@ -16,6 +16,7 @@
     {
       "id": "sink_1",
       "label": "sink_counter",
+      "description": "주방에서 조리를 하",
       "x": 150,
       "y": 220,
       "w": 280,
@@ -45,6 +46,7 @@
     {
       "id": "dining_table_1",
       "label": "dining_table",
+      "description": "밥을 먹을 때, 식기를 놓는 테이블",
       "x": 280,
       "y": 100,
       "w": 120,

@@ -50,7 +50,7 @@ def ask_intent(client, usertext, prev_intent=None, room_furniture=None,
     return None
 
 
-def run_agent(client, intent, utterance, max_steps=20):
+def run_agent(client, intent, utterance, max_steps=100):
     """형태층 tool-call 루프. LLM 제안 → tool 실행 → 결과 반환 반복.
 
     agent.py는 tool을 갖지 않는다 — tool_call(JSON)을 registry.HANDLERS에서

@@ -1,11 +1,12 @@
 {
   "_comment": [
     "활동→가구 조합 참고표 (강제 아닌 reference). LLM은 물리 스펙(ROBOT_MECHANISM) 안에서 자유롭게 새 형태를 구성해도 된다.",
+    "순서 원칙: 상황에 맞는 motif가 표에 있으면 그대로 따르라 (일관성 유지). 표에 없는 상황일 때만 각 motif의 'why'(그 각도를 선택한 물리적 근거)에 담긴 공통 원리로 근거 있게 새 형태를 만들어라 — 근거 없는 임의 변형은 하지 마라.",
     "panel 값은 {0,45,90,135,180}. 0=닫힘, 45=\\ 아래 기울임, 90=수평 확장, 135=/ 위 기울임, 180=수직(파티션/등받이/날개).",
     "1대 motif의 panel_left/right는 좌우 대칭이라 서로 바꿔도 된다 (rot로 방향 결정).",
-    "2대 motif의 panel_inner=상대 로봇을 향한 패널, panel_outer=바깥쪽 패널. arrangement: side_by_side(rot 동일)/facing(rot 차 180)/right_angle(rot 차 90).",
-    "같은 형태라도 사용자에 따라 의미가 다름: 닫힌 상자(높이 50cm)는 성인에겐 좌석, 아이에겐 테이블.",
-    "capacity = 권장 인원. 같은 기능이면 인원에 맞는 '최소 구성'을 골라라 — 1~2인 테이블은 로봇 1대 확장(large_table)로 충분하고, 3인 이상이거나 올려둘 물건이 많을 때만 2대 조합(bridge_table_with_storage, large_worktable)을 쓴다."
+    "2대 motif의 panel_inner=상대 로봇을 향한 패널, panel_outer=바깥쪽 패널 (상대적 개념 — 실제 panel_left/right로 바꾸는 규칙은 ROBOT_MECHANISM 참고). arrangement: side_by_side(rot 동일)/facing(rot 차 180)/right_angle(rot 차 90).",
+    "같은 패널 상태라도 의미가 갈릴 수 있다: (1) 사용자 유형 기준 — 닫힌 상자(높이 50cm)는 성인에겐 좌석, 아이에겐 테이블. (2) 목적 기준 — partition/storage_wings처럼 상태는 같아도 목적(공간 분리 vs 수납 접근)에 따라 이름이 갈리는 경우 각 motif의 'disambiguation' 필드에 판단 기준을 명시해뒀다.",
+    "capacity는 {type, value} 구조다. type은 이 motif의 '용량'을 무엇으로 재는지를 뜻한다: 'people'(앉거나 쓰는 인원 수), 'zone'(나누어 주는 활동/사용자 구역 수), 'storage'(수용 가능한 물건 양). type에 맞는 기준으로 최소 구성을 골라라 — 예: people이면 인원수, zone이면 나눠야 할 활동·그룹 수, storage면 올려둘 물건 양에 맞춰라. 1~2인 테이블은 로봇 1대 확장(large_table)로 충분하고, 3인 이상이거나 올려둘 물건이 많을 때만 2대 조합(bridge_table_with_storage, large_worktable)을 쓴다."
   ],
   "motifs": {
     "closed_box": {
@@ -18,8 +19,9 @@
       ],
       "label_ko": "닫힌 상자",
       "use": "성인 좌석 또는 아이 테이블. 윗면에 물건 올리기",
+      "why": "양쪽 다 닫아 두어 다른 기능을 더하지 않고 평평한 상판(50cm)만 남긴 가장 단순한 형태",
       "users": "any",
-      "capacity": "1인 (성인 좌석 1 / 아이 테이블 1)"
+      "capacity": {"type": "people", "value": "1인 (성인 좌석 1 / 아이 테이블 1)"}
     },
     "basic_table": {
       "robots": 1,
@@ -31,8 +33,9 @@
       ],
       "label_ko": "기본 테이블",
       "use": "한쪽 패널만 펼친 테이블 (상판 40×70). 티테이블·사이드 테이블",
+      "why": "한쪽만 수평(90°)으로 펴 상판을 넓히고, 반대쪽은 닫아 두어 필요한 만큼만 최소로 확장",
       "users": "any",
-      "capacity": "1인"
+      "capacity": {"type": "people", "value": "1인"}
     },
     "large_table": {
       "robots": 1,
@@ -44,8 +47,9 @@
       ],
       "label_ko": "큰 테이블",
       "use": "양쪽 완전 확장 테이블 (상판 40×100)",
+      "why": "양쪽 다 수평(90°)으로 펴 상판 면적을 로봇 1대 기준 최대로 늘림",
       "users": "any",
-      "capacity": "1~2인"
+      "capacity": {"type": "people", "value": "1~2인"}
     },
     "table_with_partition": {
       "robots": 1,
@@ -57,8 +61,9 @@
       ],
       "label_ko": "파티션이 있는 테이블",
       "use": "상판 + 시선 차단 파티션. 집중이 필요한 공부·작업",
+      "why": "한쪽은 수평(90°)으로 펴 상판을, 반대쪽은 수직(180°)으로 세워 옆 시선을 막는 벽을 동시에 확보",
       "users": "any",
-      "capacity": "1인"
+      "capacity": {"type": "people", "value": "1인"}
     },
     "partition": {
       "robots": 1,
@@ -70,7 +75,10 @@
       ],
       "label_ko": "파티션",
       "use": "양 패널을 세운 가림벽 (꼭대기 80cm). 시선 차단·집중용만이 아니라, 여러 사람이 한 공간에 공존할 때 활동 구역을 나누는 경계로도 쓴다 (예: 아이 놀이 구역과 성인 작업 구역 분리)",
-      "users": "any"
+      "why": "양쪽 다 수직(180°)으로 세워 상판 기능을 포기하는 대신 오직 가림/경계 역할에 면적을 전부 씀",
+      "disambiguation": "이 상태(180/180)는 storage_wings와 물리적으로 동일하다 — 같은 형태라도 목적에 따라 이름이 갈린다. 발화가 '나누다·가리다·따로 있고 싶다'처럼 사람·활동 사이 공간 분리가 목적이면 partition으로, '정리하다·치우다·넣다'처럼 수납 접근이 목적이면 storage_wings로 판단하라.",
+      "users": "any",
+      "capacity": {"type": "zone", "value": "2개 활동/사용자 구역 분리 (예: 성인 작업존 + 아이 놀이존)"}
     },
     "backrest_chair": {
       "robots": 1,
@@ -82,8 +90,9 @@
       ],
       "label_ko": "등받이 의자",
       "use": "세운 패널(180°)이 등받이, 반대쪽 패널은 45°(\\)로 열림. 성인 착석용",
+      "why": "등은 수직 지지가 필요해 180°로 세우고, 반대쪽은 45°로 살짝 내려 앉을 때 다리가 지나갈 공간을 비워줌",
       "users": "adult",
-      "capacity": "1인"
+      "capacity": {"type": "people", "value": "1인"}
     },
     "open_storage": {
       "robots": 1,
@@ -95,7 +104,9 @@
       ],
       "label_ko": "오픈 수납",
       "use": "패널을 열어 내부 서랍장 접근. 물건 넣고 꺼내기",
-      "users": "any"
+      "why": "완전히 젖히지 않고 45°만 열어 손이 닿을 통로만 내고 상판·구조는 과하게 무너뜨리지 않음",
+      "users": "any",
+      "capacity": {"type": "storage", "value": "소품 다수 (통로만 낸 절반 개방 — 완전 개방인 storage_wings보다는 적음)"}
     },
     "storage_wings": {
       "robots": 1,
@@ -107,7 +118,10 @@
       ],
       "label_ko": "정리 모드 (날개 펴기)",
       "use": "양 날개를 펴 윗면 개방 — 상판 위 물건을 내부로 수납해 정리",
-      "users": "any"
+      "why": "양쪽을 수직(180°)으로 완전히 열어 윗면 전체를 개방, 물건을 안으로 밀어 넣는 동선을 가장 넓게 확보",
+      "disambiguation": "이 상태(180/180)는 partition과 물리적으로 동일하다 — 판단 기준은 partition 항목의 disambiguation 참고.",
+      "users": "any",
+      "capacity": {"type": "storage", "value": "상판 위 물건 전체 (윗면 완전 개방 — open_storage보다 많음)"}
     },
     "reading_stand": {
       "robots": 1,
@@ -119,8 +133,9 @@
       ],
       "label_ko": "독서대",
       "use": "패널을 / 위로 기울여 책을 기대는 면. 독서·태블릿 거치",
+      "why": "위로 기운(135°) 면은 책이 미끄러지지 않고 기대어 세워지는 각도라 독서·태블릿 거치에 맞음",
       "users": "any",
-      "capacity": "1인"
+      "capacity": {"type": "people", "value": "1인"}
     },
     "large_worktable": {
       "robots": 2,
@@ -137,8 +152,9 @@
       ],
       "label_ko": "큰 작업대",
       "use": "두 대를 나란히 붙여 만든 대형 상판 (약 140cm 폭). 공작·다인원 작업",
+      "why": "서로 붙는 안쪽 면은 닫아 두고(0°) 바깥쪽만 펴서(90°) 두 상판을 하나의 긴 면으로 이음",
       "users": "any",
-      "capacity": "3인 이상 또는 넓은 작업"
+      "capacity": {"type": "people", "value": "3인 이상 또는 넓은 작업"}
     },
     "bridge_table_with_storage": {
       "robots": 2,
@@ -155,8 +171,9 @@
       ],
       "label_ko": "큰 테이블 + 아래 정리함",
       "use": "마주보고 안쪽 패널을 수평으로 맞대어 이은 대형 상판. 열린 내부가 상판 아래 정리함이 됨",
+      "why": "마주보는 안쪽 패널끼리 같은 각도(90°)로 맞대 다리처럼 이어 붙이고, 바깥쪽도 펴서 상판 폭을 한 번 더 늘림",
       "users": "any",
-      "capacity": "3인 이상"
+      "capacity": {"type": "people", "value": "3인 이상"}
     },
     "partitioned_shared_table": {
       "robots": 2,
@@ -173,8 +190,9 @@
       ],
       "label_ko": "파티션이 있는 큰 테이블",
       "use": "가운데 이어진 상판 + 양 끝 파티션. 두 사람이 각자 집중하며 함께 쓰는 테이블",
+      "why": "가운데(안쪽)는 수평(90°)으로 이어 공용 상판을 만들고, 바깥쪽은 세워(180°) 각자의 자리를 옆에서 가려줌",
       "users": "any",
-      "capacity": "2인 (각자 집중)"
+      "capacity": {"type": "people", "value": "2인 (각자 집중)"}
     },
     "study_carrel": {
       "robots": 2,
@@ -191,8 +209,9 @@
       ],
       "label_ko": "스터디 캐럴",
       "use": "나란히 붙여 패널을 모두 세운 몰입형 공부 공간 (삼면 차단)",
+      "why": "네 면을 모두 수직(180°)으로 세워 삼면을 둘러싸듯 막아 바깥 시선·소리를 최대한 차단",
       "users": "child",
-      "capacity": "아이 1인"
+      "capacity": {"type": "people", "value": "아이 1인"}
     },
     "bookshelf": {
       "robots": 2,
@@ -209,7 +228,9 @@
       ],
       "label_ko": "책장",
       "use": "마주보고 안쪽 패널을 \\ 아래로 기울여 V자 골을 만듦 — 책을 꽂아두는 공유 책장",
-      "users": "any"
+      "why": "마주보는 두 안쪽 패널을 같은 각도(45°)로 내리면 가운데가 V자 골이 되어 세운 책이 미끄러지지 않고 모임",
+      "users": "any",
+      "capacity": {"type": "storage", "value": "책 다수 (V자 골에 세워 꽂기)"}
     },
     "playhouse": {
       "robots": 2,
@@ -226,8 +247,9 @@
       ],
       "label_ko": "플레이하우스",
       "use": "마주보고 안쪽 패널을 / 기울여 맞댄 지붕(∧). 아이가 사이에 들어가 노는 집 모양 놀이 환경",
+      "why": "마주보는 두 안쪽 패널을 같은 각도(135°)로 올리면 가운데서 맞닿아 지붕(∧) 모양이 되어 그 아래 아이가 들어갈 공간이 생김",
       "users": "child",
-      "capacity": "아이 1~2인"
+      "capacity": {"type": "people", "value": "아이 1~2인"}
     },
     "l_shaped_table": {
       "robots": 2,
@@ -244,8 +266,9 @@
       ],
       "label_ko": "L자 테이블",
       "use": "직각 배치로 만든 L자 상판. 코너 활용 작업 공간",
+      "why": "두 대를 직각으로 두고 양쪽 다 수평(90°)으로 펴면 두 상판이 코너에서 이어져 L자 면이 됨",
       "users": "any",
-      "capacity": "1~2인"
+      "capacity": {"type": "people", "value": "1~2인"}
     },
     "parent_child_corner": {
       "robots": 2,
@@ -262,8 +285,9 @@
       ],
       "label_ko": "부모-자녀 공유 코너",
       "use": "한 대는 티테이블(90°), 한 대는 독서대(135°) — 부모가 곁에 있으면서 아이가 책 읽는 공유 공간",
+      "why": "같은 자리에 나란히 붙이되 바깥쪽 패널만 서로 다르게(90°/135°) 정해 한 대는 차 마시는 테이블로, 한 대는 책 기대는 면으로 역할을 나눔",
       "users": "adult_child",
-      "capacity": "성인 1 + 아이 1"
+      "capacity": {"type": "people", "value": "성인 1 + 아이 1"}
     }
   },
   "modifiers": {
@@ -271,6 +295,7 @@
     "storage_access": {
       "edit": "닫혀 있는(0°) 패널 하나를 45°로 열기",
       "label_ko": "수납 열기",
+      "why": "형태를 바꾸지 않고 닫힌 패널 하나만 살짝 열어 서랍으로 가는 통로만 최소로 추가",
       "use": "현재 가구 형태는 그대로 두고 내부 서랍장 접근만 추가. 예: 기본 테이블(90/0)에서 '이것 좀 정리하자' → 90/45 — 테이블은 유지되고 반대쪽이 수납 입구가 됨"
     }
   },

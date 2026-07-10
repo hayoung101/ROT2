@@ -30,6 +30,7 @@ def _hitl1_confirm(viewer, message):
         return bool(res.get("approved")), res.get("feedback", "")
     ans = input("[HITL-1] 맞으면 y / 고칠 점 입력: ").strip()   # 콘솔 fallback
     if ans.lower() in ("y", "yes", "", "ㅇ", "네", "좋아"):
+    #오직 이 다섯가지 경우만 채팅에서 승인
         return True, ""
     return False, ans
 

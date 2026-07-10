@@ -238,6 +238,8 @@ class RobotView {
     this.fallback = buildFallbackRobot(ROBOT_COLORS[name] || 0x888888);
     this.rig.add(this.fallback);
     this.glbNode = null;
+    this.glbKey = null;      // 현재 화면에 붙은 패널 상태 키
+    this.wantKey = null;     // 가장 최근에 요청된 키 (경합 시 최신만 반영)
     this.cur = { x: 0, y: 0, rot: 0, pl: 0, pr: 0 };
     this.tgt = { ...this.cur };
     this.speed = 1;
@@ -255,9 +257,18 @@ class RobotView {
     });
   }
   async swapGlb(key) {
+    if (key === this.glbKey && this.glbNode) return;   // 이미 그 상태면 스왑 불필요
+    this.wantKey = key;                                // 최신 요청 기록
     const tpl = await glbTemplate(key);
-    if (tpl === null) return;                       // GLB 없음 → fallback 그대로
+    if (key !== this.wantKey) return;                  // 그새 더 최신 요청이 왔으면 이 결과는 폐기 (순서 꼬임 방지)
+    if (tpl === null) {                                // GLB 없음/로드 실패 → 조립식 fallback으로 표시
+      if (this.glbNode) { this.rig.remove(this.glbNode); this.glbNode = null; }
+      this.fallback.visible = true;                    // 패널 변화가 최소한 조립식으로라도 보이게
+      this.glbKey = key;
+      return;
+    }
     if (this.glbNode) this.rig.remove(this.glbNode);
+    this.glbKey = key;
     this.glbNode = tpl.clone(true);
     this.glbNode.traverse(o => {
       if (o.isMesh) {
@@ -444,6 +455,7 @@ addEventListener('keyup', e => {
 
 // ---------- WebSocket ----------
 let ws;
+let lastSpace = null;   // 마지막으로 라벨을 그린 방 (재연결 시 중복 라벨 방지)
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => $('status').textContent = '연결됨';
@@ -451,7 +463,14 @@ function connect() {
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === 'scene_change') {
-      if (m.scene) { buildRoom(m.scene); addBubble('system', '― ' + (m.scene.space || '방') + ' ―'); }
+      if (m.scene) {
+        buildRoom(m.scene);
+        // 방 라벨은 실제로 방이 바뀔 때만 (재연결 스냅샷마다 중복 추가 방지)
+        if (m.scene.space !== lastSpace) {
+          addBubble('system', '― ' + (m.scene.space || '방') + ' ―');
+          lastSpace = m.scene.space;
+        }
+      }
       applyStates(m.states, 0);
     } else if (m.type === 'state_update') {
       applyStates(m.states, m.duration ?? 1.2);

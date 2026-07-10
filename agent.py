@@ -42,6 +42,7 @@ def ask_intent(client, usertext, prev_intent=None, room_furniture=None,
         )
 
         result = json.loads(response.output_text)
+        print("[INTENT] LLM이 도출한 의도 결과:")
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return result
     except Exception as e:

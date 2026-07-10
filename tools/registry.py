@@ -73,7 +73,8 @@ TOOLS = [
     _tool("find_placement",
           "유효 후보 좌표를 코드가 계산해 준다. near에 가구 id(예: 'table_1')를 주면 그 가구 인접 후보(tag: <id>_front/_side/_back), "
           "null이면 방 전체 가용 공간 조사(가구 앞·open_area·벽가). 각 후보에 tag, 주변 여유 clearance(cm), "
-          "앵커를 바라보는 rot_suggest(도)가 붙는다 — 활동의 성격과 tag를 맞춰 골라라. "
+          "앵커를 바라보는 rot_suggest(도), 그리고 그 rot에서 앵커를 향하는 패널인 panel_toward_anchor(\"left\"/\"right\")가 붙는다 — "
+          "램프·상판·등받이를 앵커 쪽으로 열려면 이 패널을 열어라(좌우를 직접 추론하지 말 것). 활동의 성격과 tag를 맞춰 골라라. "
           "footprint는 반경(정사각) 또는 footprint_w×footprint_d(직사각 — 풀확장 100×40 같은 길쭉한 구성은 이쪽이 후보가 많다).",
           {"footprint_radius": {"type": ["number", "null"], "description": "배치할 구성의 대략 반경 (cm). 직사각 proxy를 쓰면 null"},
            "near": {"type": ["string", "null"], "description": "앵커: 가구 id/label 또는 로봇 이름. null=방 전체 조사"},

@@ -23,9 +23,8 @@ def _hitl1_confirm(viewer, message):
 
     반환: (approved: bool, feedback: str)."""
     print("[HITL-1] " + message)
-    if viewer:
-        viewer.chat("agent", message)   # 의도 확인 발화
     if viewer is not None and viewer.clients:
+        # approval_request가 메시지+승인/수정 버튼을 한 말풍선으로 그린다 (chat 중복 금지)
         res = viewer.request_approval(message)   # 브라우저 승인/피드백 대기
         return bool(res.get("approved")), res.get("feedback", "")
     ans = input("[HITL-1] 맞으면 y / 고칠 점 입력: ").strip()   # 콘솔 fallback
@@ -44,9 +43,8 @@ def _slim_history(scene_state, n=8):
 def _ask_clarification(viewer, question, candidates=None):
     """HITL 앞단 되묻기 — 답 문자열 반환 (빈 문자열이면 무응답/취소)."""
     print("[확인 질문] " + str(question))
-    if viewer:
-        viewer.chat("agent", question)
     if viewer is not None and viewer.clients:
+        # clarify_request가 질문을 말풍선으로 그린다 (chat 중복 금지)
         return viewer.ask(question, candidates)
     if candidates:
         print("   후보:", candidates)
@@ -71,7 +69,7 @@ def _do_revert(scene_state, viewer, intent):
         tools.push_state()
     print("[revert] turn %d로 복원" % entry["turn"])
     if viewer:
-        viewer.chat("agent", "turn %d 상태로 되돌렸어요." % entry["turn"])
+        viewer.chat("agent", "이전 배치로 되돌렸어요.")
 
 
 def handle(openai_client, scene_state, text, last_intent, _depth=0):
@@ -121,10 +119,12 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
             viewer.chat("agent", confirmation)
 
     if it == "confirm":   # 승인 → 스냅샷 확정 (변화 없으면 재커밋 안 함)
+        prev_turn = scene_state.turn
         entry = scene_state.commit_if_changed("사용자 승인: " + text, "confirm", text)
-        print("[commit] turn %d 확정" % entry["turn"])
-        if viewer:
-            viewer.chat("system", "배치가 확정되었습니다 (turn %d)" % entry["turn"])
+        if scene_state.turn > prev_turn:   # 새로 확정됐을 때만 안내
+            print("[commit] turn %d 확정" % entry["turn"])
+            if viewer:
+                viewer.chat("system", "배치가 확정되었습니다 (turn %d)" % entry["turn"])
         return intent
 
     if it == "revert":   # 결정론적 복원 (형태층 LLM 스킵)
@@ -147,7 +147,9 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
 def main():
     scene_state = SceneState()
     scene_state.load_scene(DEFAULT_SPACE)
-    scene_state.resume()   # 이전 세션이 있으면 이어서
+    # 프로그램 재시작은 도크에서 새로 시작한다 (resume 안 함). 브라우저 새로고침(F5)은
+    # 파이썬 프로세스가 살아 있어 뷰어가 현재 스냅샷을 다시 push하므로 가구·로봇이 유지된다.
+    # commit 시 logs/session.json은 계속 기록된다 (로그·디버깅용).
     openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
 
     viewer = None

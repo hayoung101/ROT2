@@ -68,15 +68,22 @@ def _clearance(x, y, hw, hd, w, d, rects):
     return int(round(max(0.0, min(wall, g))))
 
 #로봇 배치 후보 묶어서 내보내기
-def _cand(x, y, tag, clearance, rot_suggest, order):
-    return {"x": round(x), "y": round(y), "tag": tag,
-            "clearance": clearance, "rot_suggest": round(rot_suggest) % 360,
-            "_ord": order}
+def _cand(x, y, tag, clearance, rot_suggest, order, target=None):
+    c = {"x": round(x), "y": round(y), "tag": tag,
+         "clearance": clearance, "rot_suggest": round(rot_suggest) % 360,
+         "_ord": order}
+    # panel_toward_anchor: 이 rot에서 앵커(target)를 향하는 패널이 left/right 중 무엇인가.
+    # 규약(collision.py): panel_right는 rot 방향(+x축이 rot만큼 회전)을, panel_left는 그 반대를 향한다.
+    if target is not None:
+        th = math.radians(rot_suggest)
+        dot = math.cos(th) * (target[0] - x) + math.sin(th) * (target[1] - y)
+        c["panel_toward_anchor"] = "right" if dot >= 0 else "left"
+    return c
 
 
 def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=(), k=6,
                    footprint_w=None, footprint_d=None):
-    """유효 후보 좌표 제안. 반환: [{"x","y","tag","clearance","rot_suggest"}].
+    """유효 후보 좌표 제안. 반환: [{"x","y","tag","clearance","rot_suggest","panel_toward_anchor"}].
 
     footprint_radius: 배치할 구성의 대략 반경(cm) — 패널 펼침 포함해 LLM이 추정.
     rot_suggest: 그 자리에서 앵커(또는 방 중심)를 바라보는 방향(도)."""
@@ -117,7 +124,8 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
             out.append(_cand(x, y, "%s_%s" % (near, side),
                              _clearance(x, y, hw, hd, w, d, rects_excl),
                              math.degrees(math.atan2(ay - y, ax - x)),
-                             {"front": 0, "side": 1, "back": 2}[side]))
+                             {"front": 0, "side": 1, "back": 2}[side],
+                             target=(ax, ay)))
     else:
         # ---- 조사 모드: 가구 앞/옆 + open_area + 벽가 ----
         for f in furn:
@@ -134,7 +142,8 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
                 out.append(_cand(x, y, "%s_%s" % (f.get("id"), side),
                                  _clearance(x, y, hw, hd, w, d, rects_excl),
                                  math.degrees(math.atan2(fy - y, fx - x)),
-                                 0 if side == "front" else 2))
+                                 0 if side == "front" else 2,
+                                 target=(fx, fy)))
         # 가장 넓은 빈 공간 (거리변환 근사: 격자점별 최소 간격의 최대점)
         opens = []
         for i in range(1, int(w // GRID_CM)):
@@ -151,7 +160,8 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
                 break
         for c, x, y in picked:
             out.append(_cand(x, y, "open_area", c,
-                             math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 1))
+                             math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 1,
+                             target=(w / 2, d / 2)))
         # 벽가
         walls = (("wall_south", lambda t: (t * w, hd + CLEARANCE_CM)),
                  ("wall_north", lambda t: (t * w, d - hd - CLEARANCE_CM)),
@@ -162,7 +172,8 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
                 x, y = fpos(t)
                 if _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
                     out.append(_cand(x, y, name, _clearance(x, y, hw, hd, w, d, rects_all),
-                                     math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 3))
+                                     math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 3,
+                                     target=(w / 2, d / 2)))
 
     out.sort(key=lambda c: (c["_ord"], -c["clearance"]))
     for c in out:

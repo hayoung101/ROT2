@@ -67,7 +67,7 @@ def find_placement(footprint_radius=None, near=None, avoid=None,
                    footprint_w=None, footprint_d=None, moving_robot=None,
                    connect=None):
     sc = _scene()
-    if connect:   # 두 대 조합의 정밀 연결 좌표 
+    if connect:   # 두 대 조합의 정밀 연결 좌표
         cands = placement.find_connect(
             sc.environment(), sc.states(), near,
             mode=connect.get("mode", "face"), side=connect.get("side", "both"),

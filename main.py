@@ -159,9 +159,9 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
         print("[scene] %s(으)로 전환" % space)
 
     answer = run_agent(openai_client, intent, text)
+    # 형태층의 마무리 발화는 채팅에 올리지 않는다 — ask_user 승인 문구·확정 안내와
+    # 내용이 중복되기 때문. 콘솔 로그로만 남긴다.
     print("[agent] " + str(answer))
-    if viewer and answer:
-        viewer.chat("agent", str(answer))
     return intent
 
 

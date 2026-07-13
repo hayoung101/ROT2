@@ -156,7 +156,7 @@ FUNCTION_PROMPT = (
 
     "【1단계 — 필요 가구 확정】 이 상황에 필요한 가구를 기능 단위로 확정하라 (의도의 furniture는 초안일 뿐 — 더하거나 빼도 된다). 기존 가구와의 원칙은 '중복하지 말되, 반드시 기여하라': 기존 가구의 description(높이·크기·자세 지원)을 근거로 그 활동의 필요를 '실제로 충족'하는 것만 목록에서 빼라. 이름·카테고리가 같다는 이유로 빼지 마라 — description이 그 활동에 부적합하면 중복이 아니다(거실의 낮은 테이블은 공작 작업대를 대신하지 못한다). 기존 가구가 활동의 중심을 충족해 뺐다면, 로봇이 곁에서 그 활동을 더 낫게 만드는 보완 가구를 최소 하나 넣어라 — 기준은 '이 방에서 이 활동을 하는 사람에게 로봇이 무엇을 더해주면 가장 도움이 되는가'다."
 
-    "【2단계 — 구현 가능성 판정】 각 항목이 로봇 물리 스펙(상자형 본체 + 두 패널의 각도 조합, 최대 2대)으로 구현 가능한지 판정해 feasible에 담아라. motifs는 참고일 뿐이다 — 목록에 없어도 물리 스펙 안에서 만들 수 있으면 feasible이다. 빛·열·물·소리·전기가 필요한 기능(조명·히터·가습기·스피커 등)이나 로봇 치수·개수를 넘는 구조는 infeasible — reason에 사용자에게 그대로 전할 수 있는 한 문장을 담아라(예: '독서등은 빛을 내야 해서 로봇 가구로는 만들 수 없어요')."
+    "【2단계 — motif 매칭과 구현 가능성 판정】 각 항목마다 가구 참고표(motifs)에서 가장 잘 맞는 motif 키를 골라 motif에 담아라 — 그 motif의 description(용도·크기)과 capacity가 이 상황의 인원·활동에 실제로 맞는지 확인하고 골라라. 맞는 것이 없으면 null(맞춤 형태)로 두라. 부적합한 motif를 억지로 끼워 맞추지도, 맞는 motif가 있는데 null로 두지도 마라. 그리고 각 항목이 로봇 물리 스펙(상자형 본체 + 두 패널의 각도 조합, 최대 2대)으로 구현 가능한지 판정해 feasible에 담아라 — motif가 null이어도 물리 스펙 안에서 만들 수 있으면 feasible이다. 빛·열·물·소리·전기가 필요한 기능(조명·히터·가습기·스피커 등)이나 로봇 치수·개수를 넘는 구조는 infeasible — reason에 사용자에게 그대로 전할 수 있는 한 문장을 담아라(예: '독서등은 빛을 내야 해서 로봇 가구로는 만들 수 없어요')."
 
     "【complement_note】 기존 가구 때문에 항목을 빼거나 보완 가구로 바꿨다면, 사용자에게 전할 이유 한 문장을 담아라 — 예: '거실에 소파와 테이블이 있으니 곁에 간식 트레이를 준비해드릴게요.' 해당 없으면 null."
 )
@@ -170,13 +170,15 @@ FUNCTION_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "item": {"type": "string", "description": "가구 이름 (자유 라벨)"},
+                    "item": {"type": "string", "description": "가구 이름 (한국어 자유 라벨 — 사용자향 텍스트용)"},
                     "count": {"type": "number", "description": "필요 개수"},
+                    "motif": {"type": ["string", "null"],
+                              "description": "furniture_motifs.json에서 상황에 맞는 motif 키 (내부 어휘, 영어). 맞는 것이 없으면 null(맞춤 형태)"},
                     "feasible": {"type": "boolean", "description": "로봇 물리 스펙으로 구현 가능한가"},
                     "reason": {"type": ["string", "null"],
                                "description": "infeasible일 때 사용자에게 전할 한 문장. feasible이면 null"},
                 },
-                "required": ["item", "count", "feasible", "reason"],
+                "required": ["item", "count", "motif", "feasible", "reason"],
                 "additionalProperties": False,
             },
         },
@@ -212,5 +214,5 @@ AGENT_PROMPT = (
 
     "【실행 전 자가 점검】 transform/move를 호출하기 전에, 완성된 구성 전체를 사용자의 눈으로 한 번 훑어라 — 이 활동에 빠진 가구는 없는가, 각 로봇의 위치와 방향이 서로·기존 가구와 자연스러운 관계를 이루는가, 인원에 맞는가, 동선을 막지 않는가. 조화로운지의 판단은 코드가 해주지 않는다 — 어색한 점을 스스로 찾았으면 고친 뒤에 실행하라."
 
-    "【진행 절차】 (1) robot_states()와 get_environment()로 현재를 파악하고, 필요하면 get_recent_context(n)로 '아까 그거'류를 해석하라. (2) intent의 furniture는 기능층이 확정한 필요 가구 목록이다 — 이를 로봇 구성으로 번역하고 check_feasibility로 검증하라. (3) transform_robot/move_robot/store_robot으로 실행하라 (뷰어 갱신은 자동이다). (4) ask_user로 배치 결과 승인을 요청하라. 메시지는 사람의 언어로 — 패널 각도·rot·좌표 같은 내부 용어와 수치 없이, 무엇을 어디에 어떤 역할로 만들었는지 말하라. intent에 complement_note가 있으면 '(기존 가구)가 (필요)를 대신하니, 로봇은 (보완 역할)을 준비했어요' 형태로 이유를 함께 담아라. 예: '거실 테이블이 책을 올려두는 면이 되어 주니, 로봇 두 대는 소파 양옆에서 책을 기대어 볼 수 있는 개인 독서대가 되었어요. 이 배치로 괜찮을까요?' (인원·방 등 정보 부족·해석 애매는 이미 의도 단계에서 되물어 해소된 상태로 들어온다 — 여기서 다시 되묻지 않는다.)"
+    "【진행 절차】 (1) robot_states()와 get_environment()로 현재를 파악하고, 필요하면 get_recent_context(n)로 '아까 그거'류를 해석하라. (2) intent의 furniture는 기능층이 확정한 필요 가구 목록이다 — 항목에 motif 키가 있으면 그 motif의 panels·arrangement를 기본형으로 삼아라(필요하면 furniture_mapping으로 상세 조회. 상황에 맞는 변형은 자유다). motif가 null인 항목은 물리 스펙 안에서 자유 구성하라. 구성을 정했으면 check_feasibility로 검증하라. (3) transform_robot/move_robot/store_robot으로 실행하라 (뷰어 갱신은 자동이다). (4) ask_user로 배치 결과 승인을 요청하라. 메시지는 사람의 언어로 — 패널 각도·rot·좌표 같은 내부 용어와 수치 없이, 무엇을 어디에 어떤 역할로 만들었는지 말하라. intent에 complement_note가 있으면 '(기존 가구)가 (필요)를 대신하니, 로봇은 (보완 역할)을 준비했어요' 형태로 이유를 함께 담아라. 예: '거실 테이블이 책을 올려두는 면이 되어 주니, 로봇 두 대는 소파 양옆에서 책을 기대어 볼 수 있는 개인 독서대가 되었어요. 이 배치로 괜찮을까요?' (인원·방 등 정보 부족·해석 애매는 이미 의도 단계에서 되물어 해소된 상태로 들어온다 — 여기서 다시 되묻지 않는다.)"
 )

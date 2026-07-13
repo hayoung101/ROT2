@@ -46,7 +46,7 @@
 
 구현 상태: INTENT_PROMPT + INTENT_SCHEMA는 prompts.py에 완성 (11개 필드 전부 required, additionalProperties false). number·posture·space는 조정성 발화에서 직전 값 유지 규칙 포함. 의도층은 최근 history 요약(recent_history)을 함께 받아 revert_to_turn을 고른다. ask_intent는 `[INTENT]`, ask_function은 `[FUNCTION]` 라벨로 콘솔에 출력.
 
-**기능층(ask_function, v4.1)**: HITL-1 승인 후 new_scene/add에서 실행. 입력 = intent(초안 포함) + 방 기존 가구(description 포함) + motifs + ROBOT_MECHANISM. 출력 = `{"furniture": [{item, count, feasible, reason}], "complement_note": str|null}`. feasible 항목이 intent["furniture"]로 교체되고, 보완 이유(complement_note)만 형태층에 전달돼 HITL-2 메시지에서 '(기존 가구)가 (필요)를 대신하니, 로봇은 (보완 역할)을 준비했어요' 흐름으로 고지된다. **구현 불가로 제외된 항목은 형태층에 넘기지 않는다**(넘기면 시키지 않아도 언급함 — 콘솔 로그만). HITL-2 메시지는 내부 용어·수치(패널 각도·rot·좌표) 금지. 단, 요청 가구가 전부 불가면 형태층을 스킵하고 사용자에게 바로 안내.
+**기능층(ask_function, v4.1)**: HITL-1 승인 후 new_scene/add에서 실행. 입력 = intent(초안 포함) + 방 기존 가구(description 포함) + motifs + ROBOT_MECHANISM. 출력 = `{"furniture": [{item(한국어 라벨, 사용자향), count, motif(라이브러리 키 — 내부 어휘, 맞는 것 없으면 null=맞춤 형태), feasible, reason}], "complement_note": str|null}`. **motif 키는 코드가 라이브러리와 대조해 참조 무결성을 보장**(없는 키 → null 교정). 형태층은 motif 키가 있으면 그 panels·arrangement를 기본형으로 쓰고(변형 자유), null이면 물리 스펙 안에서 자유 구성. feasible 항목이 intent["furniture"]로 교체되고, 보완 이유(complement_note)만 형태층에 전달돼 HITL-2 메시지에서 '(기존 가구)가 (필요)를 대신하니, 로봇은 (보완 역할)을 준비했어요' 흐름으로 고지된다. **구현 불가로 제외된 항목은 형태층에 넘기지 않는다**(넘기면 시키지 않아도 언급함 — 콘솔 로그만). HITL-2 메시지는 내부 용어·수치(패널 각도·rot·좌표) 금지. 단, 요청 가구가 전부 불가면 형태층을 스킵하고 사용자에게 바로 안내.
 
 ## 4. intent_type 라우팅 (배치 후 사용자 반응 처리)
 

@@ -179,11 +179,21 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
     # 기능층: 가구 목록 확정 + 구현 가능성 판정 (new_scene/add만 — 조정성 발화는 기존 목록 유지).
     # 방 전환 '후'에 호출해야 새 방의 기존 가구를 근거로 판단한다.
     if it in ("new_scene", "add"):
-        func = ask_function(openai_client, intent, scene_state.furniture(), _load_motifs())
+        motifs = _load_motifs()
+        func = ask_function(openai_client, intent, scene_state.furniture(), motifs)
         if func:
             items = func.get("furniture") or []
-            feasible = [{"item": f["item"], "count": f["count"]}
-                        for f in items if f.get("feasible")]
+            valid_keys = set((motifs or {}).get("motifs", {}))
+            feasible = []
+            for f in items:
+                if not f.get("feasible"):
+                    continue
+                m = f.get("motif")
+                if m is not None and m not in valid_keys:
+                    # 존재하지 않는 motif 키(오타·환각) → 코드가 null(맞춤 형태)로 교정 (참조 무결성 보장)
+                    print("[FUNCTION] 알 수 없는 motif 키 '%s' → null 교정" % m)
+                    m = None
+                feasible.append({"item": f["item"], "count": f["count"], "motif": m})
             excluded = [{"item": f["item"], "reason": f.get("reason")}
                         for f in items if not f.get("feasible")]
             if items and not feasible:   # 전부 구현 불가 → 형태층 스킵, 사용자에게 바로 알림

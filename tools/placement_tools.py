@@ -31,11 +31,18 @@ def transform_robot(robot, panel_left, panel_right, furniture):
 
 def move_robot(robot, x, y, rot=None):
     import math
-    before = next((s for s in _scene().states() if s["robot"] == robot), None)
-    st = _scene().move(robot, x, y, rot)
+    sc = _scene()
+    before = next((s for s in sc.states() if s["robot"] == robot), None)
+    st = sc.move(robot, x, y, rot)
     # 애니메이션 시간 = 이동 거리 비례 (30cm/s 감각, 0.8~4초 clamp) — 순간이동 방지
     dist = math.hypot(st["x"] - before["x"], st["y"] - before["y"]) if before else 0
     push_state(duration=max(0.8, min(4.0, dist / 30.0)))
+    # 실행 후 실제 rot·위치 기준의 확정 toward/away — 후보의 계획값이 무효가 됐어도
+    # transform 직전에 항상 신선한 진실을 공급한다 (LLM은 제안, 코드는 보장).
+    ori = placement.panel_orientation(st, sc.environment(), sc.states())
+    if ori:
+        st = dict(st)
+        st["panel_orientation"] = ori
     return _with_issues(st)
 
 

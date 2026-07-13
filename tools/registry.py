@@ -56,7 +56,9 @@ TOOLS = [
     _tool("move_robot",
           "로봇을 이동·회전한다. 실행형 — 즉시 적용. footprint(패널 포함)가 방을 벗어나면 코드가 안으로 끌어당긴다. "
           "find_placement의 후보 좌표와 rot_suggest를 참고해 좌표를 정하라. "
-          "실행 직후 코드가 자동 검증한다 — 반환에 issues가 있으면 fix 힌트대로 즉시 해소하라.",
+          "실행 직후 코드가 자동 검증한다 — 반환에 issues가 있으면 fix 힌트대로 즉시 해소하라. "
+          "반환의 panel_orientation은 실행 후 실제 rot 기준으로 재계산한 주변 앵커별 toward/away 확정값이다 — "
+          "transform_robot에서 어느 패널을 열지는 후보의 계획값보다 이 값을 우선하라 (off_axis는 그 앵커가 고정 측면 방향이라는 뜻).",
           {"robot": _ROBOT,
            "x": {"type": "number", "description": "본체 바닥 중심 x (cm)"},
            "y": {"type": "number", "description": "본체 바닥 중심 y (cm)"},
@@ -75,9 +77,9 @@ TOOLS = [
     _tool("find_placement",
           "유효 후보 좌표를 코드가 계산해 준다. near에 가구 id(예: 'table_1')를 주면 그 가구 인접 후보(tag: <id>_front/_side/_back), "
           "null이면 방 전체 가용 공간 조사(가구 앞·open_area·벽가). 각 후보에 tag, 주변 여유 clearance(cm), "
-          "앵커를 바라보는 rot_suggest(도), 그리고 그 rot에서 앵커를 향하는 패널인 panel_toward_anchor(\"left\"/\"right\")가 붙는다 — "
-          "램프·상판·등받이를 앵커 쪽으로 열려면 이 패널을 열어라(좌우를 직접 추론하지 말 것). "
-          "panel_toward_anchor는 rot_suggest 채택 시에만 유효하며, 반대쪽 패널은 반대 값이다. 활동의 성격과 tag를 맞춰 골라라. "
+          "앵커를 바라보는 rot_suggest(도), 그 rot에서의 panel_toward_anchor(앵커 쪽 패널)와 panel_away_from_anchor(앵커 반대쪽 패널)가 붙는다 — "
+          "좌우를 직접 추론하지 말고 둘 중에서 골라라 — 어느 쪽이 맞는지는 기능면이 몸·물건과 만나는 방향을 상황으로 판단하라(항상 toward가 아니다). "
+          "두 값은 rot_suggest 채택 시에만 유효하다. 활동의 성격과 tag를 맞춰 골라라. "
           "footprint는 반경(정사각) 또는 footprint_w×footprint_d(직사각 — 풀확장 100×40 같은 길쭉한 구성은 이쪽이 후보가 많다). "
           "두 대 조합의 연결 좌표는 connect를 쓰라 — 거리·각도를 직접 계산하지 마라.",
           {"footprint_radius": {"type": ["number", "null"], "description": "배치할 구성의 대략 반경 (cm). 직사각 proxy를 쓰면 null"},

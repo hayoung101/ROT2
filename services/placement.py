@@ -72,12 +72,15 @@ def _cand(x, y, tag, clearance, rot_suggest, order, target=None):
     c = {"x": round(x), "y": round(y), "tag": tag,
          "clearance": clearance, "rot_suggest": round(rot_suggest) % 360,
          "_ord": order}
-    # panel_toward_anchor: 이 rot에서 앵커(target)를 향하는 패널이 left/right 중 무엇인가.
+    # panel_toward_anchor / panel_away_from_anchor: 이 rot에서 앵커(target)를 향하는/등지는 패널.
+    # 두 값을 모두 명시해 LLM이 '반대 값 뒤집기' 연산을 직접 하지 않게 한다 (항상 toward로
+    # 수렴하는 편향 방지 — 독서대·등받이처럼 기능면이 반대쪽인 형태가 있다).
     # 규약(collision.py): panel_right는 rot 방향(+x축이 rot만큼 회전)을, panel_left는 그 반대를 향한다.
     if target is not None:
         th = math.radians(rot_suggest)
         dot = math.cos(th) * (target[0] - x) + math.sin(th) * (target[1] - y)
         c["panel_toward_anchor"] = "right" if dot >= 0 else "left"
+        c["panel_away_from_anchor"] = "left" if dot >= 0 else "right"
     return c
 
 
@@ -180,6 +183,38 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
         c.pop("_ord", None)
     return out[:k]
 #추천하는 배치 구역을 목록으로 내보냄
+
+
+def panel_orientation(state, scene, others=(), max_dist=150):
+    """실행 '후' 실제 rot·위치 기준으로, 주변 앵커별 toward/away 패널을 재계산한다 (코드 보장).
+
+    find_placement 후보의 panel_toward_anchor는 rot_suggest 채택을 전제한 계획값이라,
+    LLM이 rot을 바꾸거나 후보를 섞어 쓰면 조용히 무효가 된다. 이 함수는 move 직후의
+    확정 상태에서 항상 신선한 값을 공급해 그 스테일 문제를 원천 차단한다.
+
+    반환: {anchor_id: {"toward": "left"/"right", "away": ...}} — max_dist(cm) 안의
+    가구·active 로봇만. 앵커가 가동 패널 축에서 크게 벗어나 있으면(≈70° 이상,
+    고정 측면 방향) off_axis=True를 함께 준다."""
+    x, y, rot = state["x"], state["y"], state.get("rot", 0)
+    th = math.radians(rot)
+    anchors = [(f.get("id"), f["x"], f["y"])
+               for f in (scene or {}).get("pre_existing_furniture", [])]
+    anchors += [(s.get("robot"), s["x"], s["y"]) for s in others or ()
+                if s.get("robot") != state.get("robot")
+                and s.get("active") != "inactive"]
+    out = {}
+    for aid, ax, ay in anchors:
+        dx, dy = ax - x, ay - y
+        dist = math.hypot(dx, dy)
+        if dist > max_dist or dist < 1e-6:
+            continue
+        dot = math.cos(th) * dx + math.sin(th) * dy   # panel_right 축과의 정렬
+        o = {"toward": "right" if dot >= 0 else "left",
+             "away": "left" if dot >= 0 else "right"}
+        if abs(dot) / dist < 0.35:   # 앵커가 패널 축에서 벗어남 → 고정 측면이 향하는 방향
+            o["off_axis"] = True
+        out[aid] = o
+    return out
 
 
 def find_connect(scene, all_states, anchor_name, mode="face", side="both",

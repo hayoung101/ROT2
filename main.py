@@ -5,6 +5,8 @@ python main.py            # 브라우저 채팅창이 유일한 인터페이스
                           #   - 타이핑 입력 + 🎤/스페이스바 push-to-talk 음성 입력
 python main.py --noview   # 뷰어 없이 콘솔 타이핑 (개발용)
 """
+import json
+import os
 import queue
 import sys
 import traceback
@@ -13,10 +15,19 @@ from openai import OpenAI
 
 import config
 import tools
-from agent import ask_intent, run_agent
+from agent import ask_function, ask_intent, run_agent
 from services.scene import SceneState
 
 DEFAULT_SPACE = "living_room"
+
+
+def _load_motifs():
+    """기능층 입력용 가구 참고표 (reference)."""
+    try:
+        with open(os.path.join("data", "furniture_motifs.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
 def _hitl1_confirm(viewer, message):
@@ -142,6 +153,12 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
             viewer.chat("agent", confirmation)
 
     if it == "confirm":   # 승인 → 스냅샷 확정 (변화 없으면 재커밋 안 함)
+        if not scene_state.history and not any(s["active"] == "active" for s in scene_state.states()):
+            # 확정할 배치가 아직 없음 (예: 첫 발화가 "응"처럼 confirm으로 분류된 경우) — 빈 상태를 커밋하지 않는다.
+            print("[HITL-1] 확정할 배치가 없어 무시")
+            if viewer:
+                viewer.chat("system", "아직 확정할 배치가 없어요. 먼저 원하시는 상황을 말씀해주세요.")
+            return last_intent
         entry, changed = scene_state.commit_if_changed("사용자 승인: " + text, "confirm", text)
         if changed:   # 새로 확정됐을 때만 안내. turn 번호는 내부 개념 — 채팅에 노출하지 않는다
             print("[commit] turn %d 확정" % entry["turn"])
@@ -158,6 +175,29 @@ def handle(openai_client, scene_state, text, last_intent, _depth=0):
         scene_state.load_scene(space)   # 방 전환 (로봇은 새 방 도크에서 시작)
         tools.push_scene()
         print("[scene] %s(으)로 전환" % space)
+
+    # 기능층: 가구 목록 확정 + 구현 가능성 판정 (new_scene/add만 — 조정성 발화는 기존 목록 유지).
+    # 방 전환 '후'에 호출해야 새 방의 기존 가구를 근거로 판단한다.
+    if it in ("new_scene", "add"):
+        func = ask_function(openai_client, intent, scene_state.furniture(), _load_motifs())
+        if func:
+            items = func.get("furniture") or []
+            feasible = [{"item": f["item"], "count": f["count"]}
+                        for f in items if f.get("feasible")]
+            excluded = [{"item": f["item"], "reason": f.get("reason")}
+                        for f in items if not f.get("feasible")]
+            if items and not feasible:   # 전부 구현 불가 → 형태층 스킵, 사용자에게 바로 알림
+                msg = " ".join(e["reason"] or ("%s은(는) 로봇 가구로 만들 수 없어요." % e["item"])
+                               for e in excluded)
+                print("[FUNCTION] 전부 구현 불가 — 형태층 스킵")
+                if viewer:
+                    viewer.chat("agent", msg)
+                return intent
+            intent["furniture"] = feasible            # 형태층은 확정 목록을 받는다
+            if excluded:   # 제외 항목은 형태층에 넘기지 않는다 (넘기면 시키지 않아도 언급함) — 로그만
+                print("[FUNCTION] 구현 불가로 제외: %s" % excluded)
+            if func.get("complement_note"):
+                intent["complement_note"] = func["complement_note"]   # 보완 이유 고지용
 
     answer = run_agent(openai_client, intent, text)
     # 형태층의 마무리 발화는 채팅에 올리지 않는다 — ask_user 승인 문구·확정 안내와

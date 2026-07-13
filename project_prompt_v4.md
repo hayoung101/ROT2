@@ -4,7 +4,7 @@
 
 > v3 → v4 주요 변경: **VLM 시각 자가검증(critic) 전면 제거**, **HITL-1 실제 블로킹 승인 구현**, **HITL-2 승인 시 코드가 자동 commit**, **revert를 main.py에서 결정론적으로 처리(의도층이 revert_to_turn 지정)**, **되묻기(clarification)를 형태층 tool에서 의도층+HITL 앞단으로 이관(tool 13→12개)**, **store_robot no-op 가드**, **check_feasibility issues에 수정 힌트**, **find_placement에 panel_toward_anchor 추가**, **시작 시 resume 제거(재시작=도크 초기화)**, **뷰어 중복 말풍선·GLB 스왑 race 수정**, **render.py 제거**.
 >
-> v4.1 패치: **find_placement에 connect 모드**(두 대 조합의 정밀 연결 좌표를 코드가 계산 — LLM 삼각함수 금지), **transform/move 직후 자동 validate_layout**(issues+fix 힌트를 결과에 실어 반환), **연결 자동 감지**(맞닿음 조건을 만족하는 패널 쌍은 충돌에서 제외 — slack 2cm vs tol 3cm 경계 오판 해소), **revert 대상 = '현재 상태와 다른' 가장 최근 커밋**(승인 자동 commit 후 no-op 방지, 프롬프트·fallback 모두), **commit_if_changed가 (entry, changed) 반환**(커밋 여부 역추론 제거), **HITL 대기 중 재접속 시 pending 요청 재전송**(F5 데드락 방지, req_id로 중복 방지), **되묻기 최대 2회 후 LLM이 잔여 정보 추론해 진행**, **handle() 예외 격리**(발화 하나의 실패가 세션을 죽이지 않음), **get_recent_context 슬림화**(메타 5필드+로봇 한 줄 요약), **GLB 스왑 후 inactive dim 재적용**, **stt.py에서 콘솔·Windows 경로 제거**(transcribe_bytes+로그만), **tests/ 제거**(테스트 스위트는 운용하지 않기로 함), **panel_away_from_anchor 추가**(두 값을 모두 명시해 '반대 값 뒤집기' 연산 제거 — 항상 toward로 여는 편향 수정. 어느 쪽을 열지는 규칙표·motif 힌트가 아니라 LLM이 '기능면이 몸·물건과 만나는 방향'으로 상황 판단), **형태층 마무리 발화 채팅 미표시**(승인 문구와 중복).
+> v4.1 패치: **find_placement에 connect 모드**(두 대 조합의 정밀 연결 좌표를 코드가 계산 — LLM 삼각함수 금지), **transform/move 직후 자동 validate_layout**(issues+fix 힌트를 결과에 실어 반환), **연결 자동 감지**(맞닿음 조건을 만족하는 패널 쌍은 충돌에서 제외 — slack 2cm vs tol 3cm 경계 오판 해소), **revert 대상 = '현재 상태와 다른' 가장 최근 커밋**(승인 자동 commit 후 no-op 방지, 프롬프트·fallback 모두), **commit_if_changed가 (entry, changed) 반환**(커밋 여부 역추론 제거), **HITL 대기 중 재접속 시 pending 요청 재전송**(F5 데드락 방지, req_id로 중복 방지), **되묻기 최대 2회 후 LLM이 잔여 정보 추론해 진행**, **handle() 예외 격리**(발화 하나의 실패가 세션을 죽이지 않음), **get_recent_context 슬림화**(메타 5필드+로봇 한 줄 요약), **GLB 스왑 후 inactive dim 재적용**, **stt.py에서 콘솔·Windows 경로 제거**(transcribe_bytes+로그만), **tests/ 제거**(테스트 스위트는 운용하지 않기로 함), **panel_away_from_anchor 추가**(두 값을 모두 명시해 '반대 값 뒤집기' 연산 제거 — 항상 toward로 여는 편향 수정. 어느 쪽을 열지는 규칙표·motif 힌트가 아니라 LLM이 '기능면이 몸·물건과 만나는 방향'으로 상황 판단), **move_robot 반환에 panel_orientation**(실행 후 실제 rot 기준 앵커별 toward/away 확정값 — 계획값 스테일 문제 차단), **형태층 마무리 발화 채팅 미표시**(승인 문구와 중복), **성인/아이 구분 제거**(user_composition 필드·이중 스케일 서술 삭제 — 구분 없이 동작, 성인 가정을 명시하지도 않음), **기능층 독립**(의도층→기능층(신규 LLM 호출 ask_function: 기존 가구 description 근거 중복·보완 판단 + 구현 가능성 판정)→형태층. HITL-1은 상황·인원만 확인, 가구는 HITL-2에서 이유와 함께 고지), **scenes 가구에 능력 description 추가**(5개 방 전부), **V자 골·∧자 지붕을 각도 목록의 고정 케이스로 명시**.
 
 ## 1. 프로젝트 개요
 
@@ -12,14 +12,14 @@
 목적: 사용자가 "친구랑 밥 먹을 거야"라고 말하면 시스템이 상황을 파악해 로봇들을 알맞게 변형·배치하고, 사용자 피드백으로 수정하는 것.
 
 - 기반 코드: STT(브라우저 push-to-talk + Groq Whisper) → OpenAI LLM 의도분석 → 로봇 명령 JSON 출력 (structured outputs, strict json_schema)
-- **로봇은 BoT²로 확정** (KIST, 부모–자녀 공유 주거용 모듈형 로봇 가구. 단일 기종 2대: BOT 1, BOT 2). 상세 스펙은 12절.
-- 타겟 사용자가 부모+자녀라 **성인/아이 이중 스케일**이 핵심: 같은 형태가 성인에겐 스툴, 아이에겐 테이블 (본체 높이 50cm). 의도층이 인원 수뿐 아니라 **구성(성인/아이)**까지 추론한다.
+- **로봇은 BoT²로 확정** (KIST, 모듈형 로봇 가구. 단일 기종 2대: BOT 1, BOT 2). 상세 스펙은 12절.
+- 사용자는 성인/아이를 구분하지 않는다 (v4.1: user_composition 제거 — 구분 없이 동작하며, 성인 가정을 프롬프트에 명시하지도 않는다).
 - **음성 입력은 브라우저 push-to-talk**: 채팅창 🎤 버튼 또는 스페이스바를 누른 채 말하기 → MediaRecorder → POST /stt → Groq Whisper. 콘솔·Windows(ctypes) 의존 제거. ROS2 변환은 사용자가 명시적으로 "ROS로 바꿔줘"라고 할 때만 진행.
 - **배치의 '조화' 판단은 LLM 자가 점검 + HITL-2 몫**이다. (v3의 VLM 시각 자가검증은 도구 호출 과다로 제거됨 — 13절 참고.)
 
 ## 2. 핵심 설계 원칙 (차별점)
 
-1. **3층 변환 구조**: 발화 → [의도층] intent → [기능층] 로봇 무관 가구 요구 목록 → [형태층] 로봇 구성(형태·위치). LLM 한 방 호출이 아니라 표현이 두 번 변환됨.
+1. **3층 변환 구조**: 발화 → [의도층] intent → [기능층] 로봇 무관 가구 요구 목록 → [형태층] 로봇 구성(형태·위치). **v4.1부터 기능층은 별도 LLM 호출(ask_function)로 독립**: 의도층은 가구 초안만 내고, 기능층이 기존 가구 description을 근거로 중복·보완을 판단하고 각 항목의 구현 가능성(feasible)을 판정한다. HITL-1 승인 후, intent_type이 new_scene/add일 때만 실행.
 2. **2중 human-in-the-loop**: HITL-1 언어 게이트(의도 확인 — **분석된 의도를 사용자에게 블로킹 승인받은 뒤에야 형태층 진행**), HITL-2 공간 게이트(3D 뷰어로 배치 확인 — **승인 즉시 코드가 스냅샷을 자동 commit**). 두 게이트의 통과율·수정 턴 수가 실험 지표.
 3. **상태 편집 + 버전 복원**: 대화는 버전된 history를 만들고, LLM은 현재 상태의 편집기. "원래대로"는 재생성이 아니라 저장된 state의 결정론적 **복원**.
 4. **LLM 제안 / 코드 보장**: LLM은 배치를 제안만 하고, 충돌·경계·연결 기하 검증은 결정론적 코드 레이어가 최종 책임. **좌표·패널 방향 선택도 코드가 계산해 후보로 주고(find_placement) LLM은 고르기만 한다.**
@@ -31,21 +31,22 @@
 ```json
 {
   "number": 2,              // nullable. 인원 단서가 전혀 없으면 반드시 null (추측 금지). null이면 needs_clarification 트리거
-  "user_composition": {"adult": 1, "child": 1},  // 성인/아이 수. 아이는 명시 단서 있을 때만 — 없으면 전원 성인 간주(child 0, adult=number). number null이면 adult도 null. 조정성 발화면 직전 값 유지
-  "situation": "아이와 식사하려는 상황",
+  "situation": "친구와 식사하려는 상황",
   "activity": "식사",
   "space": "kitchen",       // living_room/bedroom/kitchen/bathroom/balcony/unknown (scenes/ 파일명과 일치). 애매하면 unknown → needs_clarification
-  "furniture": [{"item": "식탁", "count": 1}, {"item": "의자", "count": 2}],  // array. 로봇 수 고려 없이 필요 가구 나열 (기능층)
+  "furniture": [{"item": "식탁", "count": 1}, {"item": "의자", "count": 2}],  // array. 로봇 수 고려 없이 나열한 '초안' — 확정·구현 가능성 판정은 기능층(ask_function)이 한다
   "posture": "sitting",     // standing/sitting/lying. 조정성 발화면 직전 값 유지
   "intent_type": "new_scene",  // confirm / modify / add / remove / revert / new_scene
   "revert_to_turn": null,   // nullable int. intent_type이 revert일 때만, 되돌릴 대상 turn 번호. main이 최근 history를 의도층에 넘겨줌
   "needs_clarification": false,  // 발화만으로 진행하기엔 정보 부족·해석 애매하면 true (number null / space unknown / 후보 여럿)
   "clarification_question": null, // needs_clarification true면 물을 한 문장. 아니면 null
-  "confirmation_message": "아이와 함께 식사하시는 상황이군요, 식탁과 의자를 준비해드릴게요."  // HITL-1용
+  "confirmation_message": "두 분이 함께 식사하시는군요, 준비를 시작할게요."  // HITL-1용. 가구 이름 언급 금지 (가구는 HITL-2에서 확인)
 }
 ```
 
-구현 상태: INTENT_PROMPT + INTENT_SCHEMA는 prompts.py에 완성 (12개 필드 전부 required, additionalProperties false). number·posture·space·user_composition은 조정성 발화에서 직전 값 유지 규칙 포함. 의도층은 최근 history 요약(recent_history)을 함께 받아 revert_to_turn을 고른다. ask_intent는 도출한 의도 결과를 `[INTENT]` 라벨로 콘솔에 출력.
+구현 상태: INTENT_PROMPT + INTENT_SCHEMA는 prompts.py에 완성 (11개 필드 전부 required, additionalProperties false). number·posture·space는 조정성 발화에서 직전 값 유지 규칙 포함. 의도층은 최근 history 요약(recent_history)을 함께 받아 revert_to_turn을 고른다. ask_intent는 `[INTENT]`, ask_function은 `[FUNCTION]` 라벨로 콘솔에 출력.
+
+**기능층(ask_function, v4.1)**: HITL-1 승인 후 new_scene/add에서 실행. 입력 = intent(초안 포함) + 방 기존 가구(description 포함) + motifs + ROBOT_MECHANISM. 출력 = `{"furniture": [{item, count, feasible, reason}], "complement_note": str|null}`. feasible 항목이 intent["furniture"]로 교체되고, 보완 이유(complement_note)만 형태층에 전달돼 HITL-2 메시지에서 '(기존 가구)가 (필요)를 대신하니, 로봇은 (보완 역할)을 준비했어요' 흐름으로 고지된다. **구현 불가로 제외된 항목은 형태층에 넘기지 않는다**(넘기면 시키지 않아도 언급함 — 콘솔 로그만). HITL-2 메시지는 내부 용어·수치(패널 각도·rot·좌표) 금지. 단, 요청 가구가 전부 불가면 형태층을 스킵하고 사용자에게 바로 안내.
 
 ## 4. intent_type 라우팅 (배치 후 사용자 반응 처리)
 
@@ -109,8 +110,8 @@ history = [
 
 ```
 project/
-├── main.py                # ✅ 조립 + 단일 발화 루프 + 라우팅. HITL-1 블로킹 승인 + 되묻기(HITL 앞단) + revert 결정론 처리. 시작 시 resume 안 함(재시작=도크)
-├── agent.py               # ✅ ask_intent(의도층, recent_history 포함, [INTENT] 출력) + run_agent(tool-call 루프, 중계만)
+├── main.py                # ✅ 조립 + 단일 발화 루프 + 라우팅. HITL-1 블로킹 승인 + 되묻기(HITL 앞단) + 기능층 호출(new_scene/add) + revert 결정론 처리. 시작 시 resume 안 함(재시작=도크)
+├── agent.py               # ✅ ask_intent(의도층) + ask_function(기능층, [FUNCTION] 출력) + run_agent(형태층 tool-call 루프, 중계만)
 ├── config.py              # ✅ API 키 + 모델명 + 로봇 물리 상수 (단일 출처). VLM/critic 상수 제거됨
 ├── prompts.py             # ✅ ROBOT_MECHANISM ✅, INTENT_PROMPT ✅, INTENT_SCHEMA ✅(12필드), AGENT_PROMPT ✅. CRITIC_PROMPT/SCHEMA 제거됨
 ├── data/
@@ -181,7 +182,7 @@ project/
 ### 물리 스펙 (전부 확정)
 - **구성**: 동일 기종 **2대** (BOT 1, BOT 2). 본체 크기는 변하지 않는다 (size 개념 없음).
 - **본체**: 상자형 40 × 40 × 50 cm. 윗면은 평평한 40×40 면. 바퀴로 자율 이동 + 제자리 회전. 방향성 있음 → state에 rot(도) 필수.
-- **이중 스케일**: 본체 높이 50cm는 고정이라, 같은 형태라도 성인과 아이에게 다르게 작용한다 — 성인에겐 앉는 좌석, **아이에겐 상판(테이블·작업면)이 된다. 아이에게는 좌석이 아니라 테이블 높이임을 전제로 형태와 역할을 정한다.**
+- 본체 높이 50cm는 고정.
 - **가동 패널 2개**: 마주보는 두 측면의 윗모서리 힌지. 40(폭)×30(길이) cm. 각각 독립적으로 **0/45/90/135/180° 5단계**(이산)로만:
   - 0°=측면에 붙어 닫힘 / 45°=\ 아래 기울임 / 90°=수평(상판 옆으로 30cm 확장) / 135°=/ 위 기울임 / 180°=윗면 위 수직(꼭대기 80cm)
 - **수납**: 패널을 열면 본체 내부 서랍장. **고정 패널 2개**: 나머지 두 측면(자석식 인터랙션 모듈 부착부, 배치 범위 밖).

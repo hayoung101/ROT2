@@ -16,7 +16,7 @@
     {
       "id": "sink_1",
       "label": "sink_counter",
-      "description": "주방에서 조리를 하",
+      "description": "조리·설거지용 카운터(상판 높이 90cm). 서서 쓰는 작업면이며 좌석은 없다",
       "x": 150,
       "y": 220,
       "w": 280,
@@ -46,7 +46,7 @@
     {
       "id": "dining_table_1",
       "label": "dining_table",
-      "description": "밥을 먹을 때, 식기를 놓는 테이블",
+      "description": "식탁(상판 높이 72cm, 120×80). 의자에 앉아 쓰는 식사 면으로 2~4인분 식기를 올릴 수 있다. 좌석은 포함되어 있지 않다",
       "x": 280,
       "y": 100,
       "w": 120,

@@ -7,7 +7,8 @@
 import json
 
 import config
-from prompts import AGENT_PROMPT, INTENT_PROMPT, INTENT_SCHEMA, ROBOT_MECHANISM
+from prompts import (AGENT_PROMPT, FUNCTION_PROMPT, FUNCTION_SCHEMA,
+                     INTENT_PROMPT, INTENT_SCHEMA, ROBOT_MECHANISM)
 
 
 # 전사된 텍스트를 OpenAI LLM를 통해 의도 분석
@@ -47,6 +48,42 @@ def ask_intent(client, usertext, prev_intent=None, room_furniture=None,
         return result
     except Exception as e:
         print("Sorry, an error occurred while asking OpenAI: {0}".format(e))
+    return None
+
+
+def ask_function(client, intent, room_furniture=None, motifs=None):
+    """기능층 — 의도를 로봇 무관 가구 요구 목록으로 확정하고 구현 가능성을 판정한다.
+
+    의도층(상황 파악)과 형태층(로봇 구성) 사이의 중간층. HITL-1 승인 뒤,
+    intent_type이 new_scene/add일 때만 호출된다 (main.py)."""
+    try:
+        response = client.responses.create(
+            model=config.OPENAI_MODEL,
+            input=[
+                {"role": "developer", "content": ROBOT_MECHANISM + FUNCTION_PROMPT},
+                {"role": "user", "content": json.dumps({
+                    "파악된 의도(intent)": {k: intent.get(k) for k in
+                                        ("number", "situation", "activity",
+                                         "posture", "space", "furniture")},
+                    "방의 기존 가구(pre_existing_furniture)": room_furniture,
+                    "가구 참고표(motifs)": motifs,
+                }, ensure_ascii=False)},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "function_result",
+                    "strict": True,
+                    "schema": FUNCTION_SCHEMA,
+                }
+            },
+        )
+        result = json.loads(response.output_text)
+        print("[FUNCTION] 기능층 판정:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+    except Exception as e:
+        print("기능층 호출 중 오류: {0}".format(e))
     return None
 
 

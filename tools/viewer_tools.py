@@ -3,7 +3,7 @@
 
 ask_user는 HITL-2 게이트다 — 배치 결과를 사용자에게 한 번 승인받고,
 승인 즉시 코드가 배치를 확정한다. (되묻기는 의도 단계에서 HITL 앞단에 처리 → main.py)"""
-from tools import STATE
+from tools import STATE, metric
 
 
 def _commit_on_approval(message):
@@ -22,6 +22,7 @@ def _commit_on_approval(message):
 
 def ask_user(message):
     """결과 승인 요청 (HITL-2). 승인받으면 그 자리에서 코드가 확정(commit)한다."""
+    metric("hitl2_attempts")   # 실험 metrics: HITL-2 시도/거부 (통과율 분모/분자)
     if STATE.get("auto_approve"):
         res = {"approved": True, "feedback": ""}
     else:
@@ -39,4 +40,6 @@ def ask_user(message):
                 res = {"approved": False, "feedback": ans}
     if res.get("approved"):
         _commit_on_approval(message)   # 승인 직후 코드가 확정 — 못 박음
+    else:
+        metric("hitl2_rejects")
     return res

@@ -7,6 +7,7 @@
 import json
 
 import config
+import tools
 from prompts import (AGENT_PROMPT, FUNCTION_PROMPT, FUNCTION_SCHEMA,
                      INTENT_PROMPT, INTENT_SCHEMA, ROBOT_MECHANISM)
 
@@ -41,6 +42,7 @@ def ask_intent(client, usertext, prev_intent=None, room_furniture=None,
                 }
             },
         )
+        tools.metric("llm_calls")   # 실험 metrics
 
         result = json.loads(response.output_text)
         print("[INTENT] LLM이 도출한 의도 결과:")
@@ -78,6 +80,7 @@ def ask_function(client, intent, room_furniture=None, motifs=None):
                 }
             },
         )
+        tools.metric("llm_calls")   # 실험 metrics
         result = json.loads(response.output_text)
         print("[FUNCTION] 기능층 판정:")
         print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -110,6 +113,7 @@ def run_agent(client, intent, utterance, max_steps=100):
     for _ in range(max_steps):
         response = client.responses.create(
             model=config.OPENAI_MODEL, input=msgs, tools=registry.TOOLS)
+        tools.metric("llm_calls")   # 실험 metrics
         msgs += response.output
         calls = [o for o in response.output
                  if getattr(o, "type", None) == "function_call"]

@@ -57,8 +57,9 @@ TOOLS = [
           "로봇을 이동·회전한다. 실행형 — 즉시 적용. footprint(패널 포함)가 방을 벗어나면 코드가 안으로 끌어당긴다. "
           "find_placement의 후보 좌표와 rot_suggest를 참고해 좌표를 정하라. "
           "실행 직후 코드가 자동 검증한다 — 반환에 issues가 있으면 fix 힌트대로 즉시 해소하라. "
-          "반환의 panel_orientation은 실행 후 실제 rot 기준으로 재계산한 주변 앵커별 toward/away 확정값이다 — "
-          "transform_robot에서 어느 패널을 열지는 후보의 계획값보다 이 값을 우선하라 (off_axis는 그 앵커가 고정 측면 방향이라는 뜻).",
+          "반환의 panel_orientation은 실행 후 실제 rot 기준으로 재계산한 주변 앵커별 패널 위치와 각도별 앞면 방향이다. "
+          "panel_on_anchor_side는 앵커와 가까운 패널의 위치일 뿐 기능면 방향이 아니다. front_face_toward_anchor를 사용해 "
+          "원하는 기능면 방향을 실제 left/right로 변환하라 (off_axis는 그 앵커가 고정 측면 방향이라는 뜻).",
           {"robot": _ROBOT,
            "x": {"type": "number", "description": "본체 바닥 중심 x (cm)"},
            "y": {"type": "number", "description": "본체 바닥 중심 y (cm)"},
@@ -75,11 +76,15 @@ TOOLS = [
            "connections": {"type": ["array", "null"], "items": _CONNECTION_ITEM,
                            "description": "두 대를 패널로 맞대는 연결 선언 (마주보기 조합 시). 없으면 null"}}),
     _tool("find_placement",
-          "유효 후보 좌표를 코드가 계산해 준다. near에 가구 id(예: 'table_1')를 주면 그 가구 인접 후보(tag: <id>_front/_side/_back), "
-          "null이면 방 전체 가용 공간 조사(가구 앞·open_area·벽가). 각 후보에 tag, 주변 여유 clearance(cm), "
-          "앵커를 바라보는 rot_suggest(도), 그 rot에서의 panel_toward_anchor(앵커 쪽 패널)와 panel_away_from_anchor(앵커 반대쪽 패널)가 붙는다 — "
-          "좌우를 직접 추론하지 말고 둘 중에서 골라라 — 어느 쪽이 맞는지는 기능면이 몸·물건과 만나는 방향을 상황으로 판단하라(항상 toward가 아니다). "
-          "두 값은 rot_suggest 채택 시에만 유효하다. 활동의 성격과 tag를 맞춰 골라라. "
+          "로봇이 가구가 될 수 있는 가용 공간을 코드가 추출해 준다. 두 모드의 역할이 다르다. "
+          "[조사 모드] near=null: 방의 빈 공간 후보를 관계 해석 없이 기하 사실로 서술한다 — clearance(최소 여유 cm), "
+          "free(동서남북 4방향으로 확보된 빈 거리 cm), nearby(주변 사물의 방향·거리). 어디에 놓을지·어느 방향을 보게 할지(rot)·"
+          "사물과 관계를 맺을지는 이 사실들로 네가 활동에 맞게 판단하라. 패널 좌우가 필요하면 move_robot 실행 후 반환의 panel_orientation(실측)으로 정하라. "
+          "[앵커 모드] near=가구 id/로봇 이름: 그 사물과 '마주 보는' 관계를 만들 때 호출하라 — 인접 후보(tag: <id>_front/_side/_back)에 "
+          "앵커를 마주 보는 rot_suggest(도), panel_on_anchor_side/panel_on_opposite_side(패널의 물리적 위치), "
+          "front_face_toward_anchor(각도별로 앞면이 앵커를 향하는 패널)가 붙는다. 이 값들은 rot_suggest 채택 시에만 유효하다. "
+          "45° 앞면은 바깥쪽, 90°는 위쪽, 135°/180°는 본체 쪽이다. 어느 기능면을 어디로 향하게 할지는 상황으로 판단하라. "
+          "나란히 놓일 가구(사이드 테이블 등)는 rot_suggest 대신 짝 가구의 rot에 맞춰라. 좌우(left/right)를 rot에서 직접 계산하지 마라. "
           "footprint는 반경(정사각) 또는 footprint_w×footprint_d(직사각 — 풀확장 100×40 같은 길쭉한 구성은 이쪽이 후보가 많다). "
           "두 대 조합의 연결 좌표는 connect를 쓰라 — 거리·각도를 직접 계산하지 마라.",
           {"footprint_radius": {"type": ["number", "null"], "description": "배치할 구성의 대략 반경 (cm). 직사각 proxy를 쓰면 null"},
@@ -108,8 +113,6 @@ TOOLS = [
           "기존 가구는 장애물이자 배치 앵커다.", {}),
     _tool("get_recent_context", "최근 n턴의 history(발화·설명·상태 스냅샷)를 조회한다. '아까 그거' 같은 참조 해석용.",
           {"n": {"type": "integer", "description": "가져올 턴 수"}}),
-    _tool("commit_layout", "사용자가 승인한 배치를 스냅샷으로 확정한다 (turn 증가 + 저장). ask_user 승인 후에만 호출하라.",
-          {"description": {"type": "string", "description": "이 배치의 한 줄 설명 (예: 'BOT 1 등받이 의자를 테이블 앞에 배치')"}}),
     _tool("revert_to", "지정한 turn의 스냅샷으로 결정론적 복원한다 (방이 다르면 방도 전환). '원래대로/아까처럼' 처리용 — "
           "get_recent_context로 turn을 찾은 뒤 호출하라.",
           {"version": {"type": "integer", "description": "복원할 turn 번호"}}),
@@ -133,7 +136,6 @@ HANDLERS = {
     "robot_states": context_tools.robot_states,
     "get_environment": context_tools.get_environment,
     "get_recent_context": context_tools.get_recent_context,
-    "commit_layout": context_tools.commit_layout,
     "revert_to": context_tools.revert_to,
     "ask_user": viewer_tools.ask_user,
 }
@@ -141,4 +143,6 @@ HANDLERS = {
 
 def dispatch(name, args):
     """LLM tool_call(JSON)을 이름으로 찾아 실행."""
+    from tools import metric_tool
+    metric_tool(name)   # 실험 metrics: tool 호출 수 (이름별)
     return HANDLERS[name](**args)

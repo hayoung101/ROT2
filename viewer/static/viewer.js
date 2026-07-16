@@ -313,7 +313,9 @@ function applyStates(states, duration) {
   for (const st of states || []) {
     if (!robots.has(st.robot)) robots.set(st.robot, new RobotView(st.robot));
     robots.get(st.robot).setTarget(st, duration);
+    lastStates.set(st.robot, st);   // 수동 패널 하이라이트용 최신 상태
   }
+  refreshManualUI();
 }
 
 // ---------- 렌더 루프 ----------
@@ -322,6 +324,11 @@ function animate(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   for (const r of robots.values()) r.tick(dt);
+  if (baseline && robots.has(selRobot)) {          // 선택된 로봇 발밑 링
+    const rig = robots.get(selRobot).rig;
+    selRing.visible = true;
+    selRing.position.set(rig.position.x, 0.6, rig.position.z);
+  } else selRing.visible = false;
   controls.update();
   renderer.render(scene3, camera);
   requestAnimationFrame(animate);
@@ -382,16 +389,62 @@ function sendInput() {
     document.querySelectorAll('.btns').forEach(e => e.remove());
     pending = null;
   } else {
-    ws.send(JSON.stringify({ type: 'user_utterance', text: t }));
+    ws.send(JSON.stringify({ type: 'user_utterance', text: t, input: 'typed' }));
   }
 }
 $('sendBtn').onclick = sendInput;
 $('msgInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendInput(); });
 
+// ---------- baseline 수동 모드 (--baseline) ----------
+// scene_change 메시지의 baseline 플래그로 켜진다. 버튼 1회 = manual_command 1건.
+// (조작 수 카운트는 파이썬 baseline_loop 몫). 좌표·회전의 진실은 파이썬이므로
+// 브라우저는 델타·목표값만 보낸다.
+let baseline = false;
+let selRobot = 'BOT 1';
+const lastStates = new Map();   // name -> 마지막 state (패널 버튼 하이라이트용)
+
+const selRing = new THREE.Mesh(
+  new THREE.RingGeometry(31, 35, 40),
+  new THREE.MeshBasicMaterial({ color: 0x2e7d32, side: THREE.DoubleSide,
+                                transparent: true, opacity: .65 }));
+selRing.rotation.x = -Math.PI / 2;
+selRing.visible = false;
+scene3.add(selRing);
+
+function sendManual(payload) {
+  if (ws && ws.readyState === 1)
+    ws.send(JSON.stringify({ type: 'manual_command', ...payload }));
+}
+function refreshManualUI() {
+  if (!baseline) return;
+  document.querySelectorAll('.rBtn').forEach(b =>
+    b.classList.toggle('sel', b.dataset.robot === selRobot));
+  const st = lastStates.get(selRobot);
+  if (!st) return;
+  document.querySelectorAll('.pBtn').forEach(b => {
+    const cur = b.dataset.side === 'left' ? (st.panel_left || 0) : (st.panel_right || 0);
+    b.classList.toggle('sel', Number(b.dataset.angle) === cur);
+  });
+}
+document.querySelectorAll('.rBtn').forEach(b =>
+  b.onclick = () => { selRobot = b.dataset.robot; refreshManualUI(); });
+document.querySelectorAll('.mvBtn').forEach(b =>
+  b.onclick = () => sendManual({ action: 'move_delta', robot: selRobot,
+                                 dx: +b.dataset.dx, dy: +b.dataset.dy, drot: 0 }));
+document.querySelectorAll('.rtBtn').forEach(b =>
+  b.onclick = () => sendManual({ action: 'move_delta', robot: selRobot,
+                                 dx: 0, dy: 0, drot: +b.dataset.drot }));
+document.querySelectorAll('.pBtn').forEach(b =>
+  b.onclick = () => sendManual({ action: 'panel', robot: selRobot,
+                                 side: b.dataset.side, angle: +b.dataset.angle }));
+$('storeBtn').onclick = () => sendManual({ action: 'store', robot: selRobot });
+$('doneBtn').onclick = () => sendManual({ action: 'commit' });
+$('roomSel').onchange = e => sendManual({ action: 'scene', space: e.target.value });
+
 // ---------- push-to-talk 음성 입력 ----------
 let mediaRecorder = null, chunks = [], recording = false;
 async function startRec() {
-  if (recording) return;
+  if (recording || baseline) return;   // baseline은 STT 미로드 — 녹음 비활성
   try {
     if (!mediaRecorder) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -434,7 +487,7 @@ async function onRecStop() {
       document.querySelectorAll('.btns').forEach(e => e.remove());
       pending = null;
     } else {
-      ws.send(JSON.stringify({ type: 'user_utterance', text }));
+      ws.send(JSON.stringify({ type: 'user_utterance', text, input: 'voice' }));
     }
   } catch (e) {
     $('status').textContent = '연결됨';
@@ -469,6 +522,10 @@ function connect() {
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === 'scene_change') {
+      if (m.baseline && !baseline) {   // 수동 모드 켜기 (패널 표시 + 채팅 입력 숨김)
+        baseline = true;
+        document.body.classList.add('baseline');
+      }
       if (m.scene) {
         buildRoom(m.scene);
         // 방 라벨은 실제로 방이 바뀔 때만 (재연결 스냅샷마다 중복 추가 방지)
@@ -476,6 +533,7 @@ function connect() {
           addBubble('system', '― ' + (m.scene.space || '방') + ' ―');
           lastSpace = m.scene.space;
         }
+        if (m.scene.space) $('roomSel').value = m.scene.space;   // 드롭다운 동기화
       }
       applyStates(m.states, 0);
     } else if (m.type === 'state_update') {

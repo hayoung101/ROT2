@@ -2,12 +2,16 @@
 """배치 탐색 + 종합 검증 (순수 계산, 상태 없음).
 
 find_placement — 좌표 찝기의 역할 분담:
-  코드가 '가능한 자리'를 계산해 의미 태그(tag)와 주변 여유(clearance)를 붙여 제안하고,
-  LLM은 활동의 성격과 tag를 맞춰 '좋은 자리'를 고른다 (연속 공간 선택 → 객관식).
-  user 좌표는 쓰지 않는다 — 기준은 기존 가구와의 조합 + 가구를 뺀 가용 공간.
+  코드는 '로봇이 가구가 될 수 있는 가용 공간'을 계산해 제안하고,
+  좋은 자리의 선택·방향·관계 판단은 LLM이 한다. user 좌표는 쓰지 않는다.
 
-- near에 가구 id/label(또는 로봇 이름)을 주면: 그 앵커에 인접한 후보 (tag: <id>_front/_side/_back)
-- near가 None이면: 방 전체 조사 — 각 가구의 앞/옆 + 가장 넓은 빈 공간(open_area) + 벽가(wall_*)
+- 조사 모드 (near=None): 방의 빈 공간 후보를 관계 해석 없이 '기하 사실'로 서술 —
+  clearance(최소 여유) + free(동서남북 4방향 빈 거리) + nearby(주변 사물의 방향·거리).
+  무엇을 마주 볼지·어떤 관계를 맺을지는 후보가 정하지 않는다 (LLM 몫).
+  rot_suggest·패널 관계값 없음 — 좌우는 move 후 panel_orientation(실측)으로.
+- 앵커 모드 (near=가구 id/label·로봇 이름): 그 앵커와 '마주 보는' 관계를 만들 때 —
+  인접 후보(tag: <id>_front/_side/_back) + 앵커를 바라보는 rot_suggest +
+  패널의 물리적 위치와 각도별 앞면 방향 (rot_suggest 채택 시에만 유효).
 - feasibility: check_feasibility tool의 몸체 (물리 + 연결 기하만. 조화는 LLM+HITL-2 몫)
 
 가구의 '앞' 규약: rot=0일 때 앞면은 +y. front 벡터 = (0,1)을 rot만큼 회전 = (-sin rot, cos rot).
@@ -20,8 +24,8 @@ from services import collision
 CLEARANCE_CM = 5.0        # 앵커 가장자리와 후보 사이 기본 여유
 AVOID_MARGIN_CM = 40.0    # avoid 대상과의 최소 이격
 STEP_DEG = 15             # 앵커 링 탐색 방향 간격
-GRID_CM = 20              # open_area 격자 간격
-OPEN_AREA_MIN_APART = 80  # open_area 후보끼리 최소 거리
+GRID_CM = 20              # 조사 모드 격자 간격
+SURVEY_MIN_APART = 80     # 조사 모드 후보끼리 최소 거리 (방을 대표하게 분산)
 
 #가구가 바라보는 방향
 def _front_vec(rot):
@@ -67,29 +71,105 @@ def _clearance(x, y, hw, hd, w, d, rects):
     g = min(gaps) if gaps else wall
     return int(round(max(0.0, min(wall, g))))
 
-#로봇 배치 후보 묶어서 내보내기
+
+def _dir8(dx, dy):
+    """중심 간 방향을 8방위 이름으로 (east=+x, north=+y — 뷰어·scene 좌표 규약)."""
+    ang = (math.degrees(math.atan2(dy, dx)) + 360) % 360
+    names = ("east", "northeast", "north", "northwest",
+             "west", "southwest", "south", "southeast")
+    return names[int(((ang + 22.5) % 360) // 45)]
+
+
+def _free_extents(x, y, hw, hd, w, d, rects, step=5.0):
+    """이 지점의 footprint가 동서남북 각 방향으로 밀려갈 수 있는 빈 거리(cm).
+
+    후보가 '어느 쪽이 얼마나 트여 있는지'를 사실로 서술한다 — 그 사실로
+    방향(rot)·동선을 판단하는 것은 LLM 몫이다."""
+    out = {}
+    limit = max(w, d)
+    for name, ux, uy in (("east", 1, 0), ("west", -1, 0),
+                         ("north", 0, 1), ("south", 0, -1)):
+        dist = 0.0
+        while dist < limit:
+            nx, ny = x + ux * (dist + step), y + uy * (dist + step)
+            if not (hw <= nx <= w - hw and hd <= ny <= d - hd):
+                break
+            proxy = (nx, ny, 2 * hw, 2 * hd, 0)
+            if any(collision.rects_collide(proxy, rc) for rc in rects):
+                break
+            dist += step
+        out[name] = int(round(dist))
+    return out
+
+
+def _nearby(x, y, hw, hd, scene, robot_states, max_items=4):
+    """주변 사물 사실 목록: 무엇이 어느 방향(8방위)·몇 cm 간격에 있는지.
+
+    관계('앞'·'옆'·앵커)는 해석하지 않는다 — 그 판단은 LLM 몫이다."""
+    proxy = (x, y, 2 * hw, 2 * hd, 0)
+    items = []
+    for f in (scene or {}).get("pre_existing_furniture", []):
+        gap = collision.rect_gap(proxy, collision.furniture_rect(f))
+        items.append((int(round(max(0.0, gap))), str(f.get("id") or f.get("label")),
+                      f.get("label"), _dir8(f["x"] - x, f["y"] - y)))
+    for s in robot_states or []:
+        gaps = [collision.rect_gap(proxy, rc) for rc in collision.footprint_rects(s)]
+        label = "도크 대기" if s.get("active") == "inactive" \
+            else (s.get("furniture") or "robot")
+        items.append((int(round(max(0.0, min(gaps)))), str(s.get("robot")),
+                      label, _dir8(s["x"] - x, s["y"] - y)))
+    items.sort(key=lambda t: (t[0], t[1]))
+    return [{"id": iid, "label": lbl, "dir": dr, "dist": g}
+            for g, iid, lbl, dr in items[:max_items]]
+
+
+#로봇 배치 후보 묶어서 내보내기 (앵커 모드 전용)
+def _panel_relation(x, y, rot, target):
+    """앵커 기준 패널 위치와 각도별 앞면 방향을 기하 사실로 반환한다.
+
+    panel_on_anchor_side는 단지 앵커와 가까운 쪽에 달린 패널이다. 패널의
+    '앞면' 방향은 힌지 각도에 따라 달라지므로 별도로 제공한다: 45°는
+    바깥쪽, 90°는 위쪽, 135°/180°는 본체 쪽을 향한다.
+    """
+    th = math.radians(rot)
+    dot = math.cos(th) * (target[0] - x) + math.sin(th) * (target[1] - y)
+    anchor_side = "right" if dot >= 0 else "left"
+    opposite_side = "left" if anchor_side == "right" else "right"
+    return {
+        "panel_on_anchor_side": anchor_side,
+        "panel_on_opposite_side": opposite_side,
+        "front_face_toward_anchor": {
+            "45": anchor_side,
+            "90": "either",
+            "135": opposite_side,
+            "180": opposite_side,
+        },
+    }
+
+
 def _cand(x, y, tag, clearance, rot_suggest, order, target=None):
     c = {"x": round(x), "y": round(y), "tag": tag,
          "clearance": clearance, "rot_suggest": round(rot_suggest) % 360,
          "_ord": order}
-    # panel_toward_anchor / panel_away_from_anchor: 이 rot에서 앵커(target)를 향하는/등지는 패널.
-    # 두 값을 모두 명시해 LLM이 '반대 값 뒤집기' 연산을 직접 하지 않게 한다 (항상 toward로
-    # 수렴하는 편향 방지 — 독서대·등받이처럼 기능면이 반대쪽인 형태가 있다).
-    # 규약(collision.py): panel_right는 rot 방향(+x축이 rot만큼 회전)을, panel_left는 그 반대를 향한다.
+    # 위치(toward/away 같은 의미 편향 어휘를 쓰지 않음)와 기능면 방향을 분리한다.
+    # 규약(collision.py): panel_right는 rot 방향(+x축이 rot만큼 회전)을,
+    # panel_left는 그 반대를 향한다.
     if target is not None:
-        th = math.radians(rot_suggest)
-        dot = math.cos(th) * (target[0] - x) + math.sin(th) * (target[1] - y)
-        c["panel_toward_anchor"] = "right" if dot >= 0 else "left"
-        c["panel_away_from_anchor"] = "left" if dot >= 0 else "right"
+        c.update(_panel_relation(x, y, rot_suggest, target))
     return c
 
 
 def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=(), k=6,
                    footprint_w=None, footprint_d=None):
-    """유효 후보 좌표 제안. 반환: [{"x","y","tag","clearance","rot_suggest","panel_toward_anchor"}].
+    """가용 공간 후보 제안.
 
-    footprint_radius: 배치할 구성의 대략 반경(cm) — 패널 펼침 포함해 LLM이 추정.
-    rot_suggest: 그 자리에서 앵커(또는 방 중심)를 바라보는 방향(도)."""
+    조사 모드(near=None) 반환: [{"x","y","clearance","free":{동서남북 빈 거리},
+      "nearby":[{id,label,dir,dist}]}] — 관계 라벨·rot_suggest 없음 (기하 사실만).
+    앵커 모드(near=id) 반환: [{"x","y","tag","clearance","rot_suggest",
+      "panel_on_anchor_side","panel_on_opposite_side","front_face_toward_anchor"}]
+      — 마주 보는 관계 전용.
+
+    footprint_radius: 배치할 구성의 대략 반경(cm) — 패널 펼침 포함해 LLM이 추정."""
     w, d = scene["width"], scene["depth"]
     # 정사각 proxy(반경) 또는 직사각 proxy(w×d — 풀확장 100×40처럼 길쭉한 구성용)
     if footprint_w is not None and footprint_d is not None:
@@ -106,77 +186,58 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
         if pt:
             avoid_pts.append(pt)
 
-    out = []
-    if near is not None:
-        # ---- 앵커 모드: 지정 가구/로봇 주변 링 탐색 ----
-        anchor, arect, arot = _anchor_geometry(scene, near, fixed_states)
-        if anchor is None:
-            return []
-        ax, ay = anchor
-        fv = _front_vec(arot)
-        rects_excl = [rc for rc in rects_all if rc != arect]
-        for deg in range(0, 360, STEP_DEG):
-            th = math.radians(deg)
-            dirv = (math.cos(th), math.sin(th))
-            dist = _half_extent(arect, dirv) + (hw * abs(dirv[0]) + hd * abs(dirv[1])) + CLEARANCE_CM
-            x, y = ax + dirv[0] * dist, ay + dirv[1] * dist
-            if not _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
-                continue
-            dot = dirv[0] * fv[0] + dirv[1] * fv[1]
-            side = "front" if dot > 0.5 else ("back" if dot < -0.5 else "side")
-            out.append(_cand(x, y, "%s_%s" % (near, side),
-                             _clearance(x, y, hw, hd, w, d, rects_excl),
-                             math.degrees(math.atan2(ay - y, ax - x)),
-                             {"front": 0, "side": 1, "back": 2}[side],
-                             target=(ax, ay)))
-    else:
-        # ---- 조사 모드: 가구 앞/옆 + open_area + 벽가 ----
-        for f in furn:
-            frect = collision.furniture_rect(f)
-            fx, fy = f["x"], f["y"]
-            fv = _front_vec(f.get("rot", 0))
-            pv = (-fv[1], fv[0])
-            rects_excl = [rc for rc in rects_all if rc != frect]
-            for side, dirv in (("front", fv), ("side", pv), ("side", (-pv[0], -pv[1]))):
-                dist = _half_extent(frect, dirv) + (hw * abs(dirv[0]) + hd * abs(dirv[1])) + CLEARANCE_CM
-                x, y = fx + dirv[0] * dist, fy + dirv[1] * dist
-                if not _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
-                    continue
-                out.append(_cand(x, y, "%s_%s" % (f.get("id"), side),
-                                 _clearance(x, y, hw, hd, w, d, rects_excl),
-                                 math.degrees(math.atan2(fy - y, fx - x)),
-                                 0 if side == "front" else 2,
-                                 target=(fx, fy)))
-        # 가장 넓은 빈 공간 (거리변환 근사: 격자점별 최소 간격의 최대점)
-        opens = []
+    if near is None:
+        # ---- 조사 모드: 가용 공간 추출 (관계 라벨 없음 — 기하 사실만) ----
+        # 격자 스캔으로 놓일 수 있는 지점을 모으고, 여유가 큰 순서대로 서로
+        # 떨어진 k개를 대표로 뽑는다. 후보는 free·nearby로 스스로를 서술할 뿐
+        # 무엇을 마주 볼지 정하지 않는다 — rot_suggest·패널 관계값은 앵커 모드 전용.
+        spots = []
         for i in range(1, int(w // GRID_CM)):
             for j in range(1, int(d // GRID_CM)):
                 x, y = i * GRID_CM, j * GRID_CM
                 if _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
-                    opens.append((_clearance(x, y, hw, hd, w, d, rects_all), x, y))
-        opens.sort(reverse=True)
-        picked = []
-        for c, x, y in opens:
-            if all(math.hypot(x - px, y - py) >= OPEN_AREA_MIN_APART for _, px, py in picked):
-                picked.append((c, x, y))
-            if len(picked) == 2:
-                break
-        for c, x, y in picked:
-            out.append(_cand(x, y, "open_area", c,
-                             math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 1,
-                             target=(w / 2, d / 2)))
-        # 벽가
-        walls = (("wall_south", lambda t: (t * w, hd + CLEARANCE_CM)),
-                 ("wall_north", lambda t: (t * w, d - hd - CLEARANCE_CM)),
-                 ("wall_west", lambda t: (hw + CLEARANCE_CM, t * d)),
-                 ("wall_east", lambda t: (w - hw - CLEARANCE_CM, t * d)))
-        for name, fpos in walls:
-            for t in (0.25, 0.5, 0.75):
-                x, y = fpos(t)
-                if _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
-                    out.append(_cand(x, y, name, _clearance(x, y, hw, hd, w, d, rects_all),
-                                     math.degrees(math.atan2(d / 2 - y, w / 2 - x)), 3,
-                                     target=(w / 2, d / 2)))
+                    spots.append((_clearance(x, y, hw, hd, w, d, rects_all), x, y))
+        spots.sort(reverse=True)
+
+        def _pick(min_apart):
+            picked = []
+            for c, x, y in spots:
+                if all(math.hypot(x - px, y - py) >= min_apart for _, px, py in picked):
+                    picked.append((c, x, y))
+                if len(picked) == k:
+                    break
+            return picked
+
+        picked = _pick(SURVEY_MIN_APART)
+        if len(picked) < 3:   # 좁은 방·장애물 과다 → 이격 기준을 낮춰 재선정
+            picked = _pick(SURVEY_MIN_APART / 2)
+        return [{"x": round(x), "y": round(y), "clearance": c,
+                 "free": _free_extents(x, y, hw, hd, w, d, rects_all),
+                 "nearby": _nearby(x, y, hw, hd, scene, fixed_states)}
+                for c, x, y in picked]
+
+    # ---- 앵커 모드: 지정 가구/로봇 주변 링 탐색 (마주 보는 관계 전용) ----
+    out = []
+    anchor, arect, arot = _anchor_geometry(scene, near, fixed_states)
+    if anchor is None:
+        return []
+    ax, ay = anchor
+    fv = _front_vec(arot)
+    rects_excl = [rc for rc in rects_all if rc != arect]
+    for deg in range(0, 360, STEP_DEG):
+        th = math.radians(deg)
+        dirv = (math.cos(th), math.sin(th))
+        dist = _half_extent(arect, dirv) + (hw * abs(dirv[0]) + hd * abs(dirv[1])) + CLEARANCE_CM
+        x, y = ax + dirv[0] * dist, ay + dirv[1] * dist
+        if not _ok(x, y, hw, hd, w, d, rects_all, avoid_pts):
+            continue
+        dot = dirv[0] * fv[0] + dirv[1] * fv[1]
+        side = "front" if dot > 0.5 else ("back" if dot < -0.5 else "side")
+        out.append(_cand(x, y, "%s_%s" % (near, side),
+                         _clearance(x, y, hw, hd, w, d, rects_excl),
+                         math.degrees(math.atan2(ay - y, ax - x)),
+                         {"front": 0, "side": 1, "back": 2}[side],
+                         target=(ax, ay)))
 
     out.sort(key=lambda c: (c["_ord"], -c["clearance"]))
     for c in out:
@@ -186,15 +247,17 @@ def find_placement(scene, fixed_states, footprint_radius=None, near=None, avoid=
 
 
 def panel_orientation(state, scene, others=(), max_dist=150):
-    """실행 '후' 실제 rot·위치 기준으로, 주변 앵커별 toward/away 패널을 재계산한다 (코드 보장).
+    """실행 '후' 실제 rot·위치 기준으로 주변 앵커와 패널 관계를 재계산한다.
 
-    find_placement 후보의 panel_toward_anchor는 rot_suggest 채택을 전제한 계획값이라,
+    find_placement 후보의 패널 관계 값은 rot_suggest 채택을 전제한 계획값이라,
     LLM이 rot을 바꾸거나 후보를 섞어 쓰면 조용히 무효가 된다. 이 함수는 move 직후의
     확정 상태에서 항상 신선한 값을 공급해 그 스테일 문제를 원천 차단한다.
+    조사 모드(기하 사실만 제공)로 배치한 경우에도 이 값이 패널 좌우의 유일한 근거다.
 
-    반환: {anchor_id: {"toward": "left"/"right", "away": ...}} — max_dist(cm) 안의
-    가구·active 로봇만. 앵커가 가동 패널 축에서 크게 벗어나 있으면(≈70° 이상,
-    고정 측면 방향) off_axis=True를 함께 준다."""
+    반환에는 앵커 쪽/반대쪽 패널의 물리적 위치와, 45/90/135/180°에서
+    어느 패널의 앞면이 앵커를 향하는지가 분리되어 있다. max_dist(cm) 안의
+    가구·active 로봇만 포함하며, 앵커가 가동 패널 축에서 크게 벗어나 있으면
+    (≈70° 이상, 고정 측면 방향) off_axis=True를 함께 준다."""
     x, y, rot = state["x"], state["y"], state.get("rot", 0)
     th = math.radians(rot)
     anchors = [(f.get("id"), f["x"], f["y"])
@@ -209,8 +272,7 @@ def panel_orientation(state, scene, others=(), max_dist=150):
         if dist > max_dist or dist < 1e-6:
             continue
         dot = math.cos(th) * dx + math.sin(th) * dy   # panel_right 축과의 정렬
-        o = {"toward": "right" if dot >= 0 else "left",
-             "away": "left" if dot >= 0 else "right"}
+        o = _panel_relation(x, y, rot, (ax, ay))
         if abs(dot) / dist < 0.35:   # 앵커가 패널 축에서 벗어남 → 고정 측면이 향하는 방향
             o["off_axis"] = True
         out[aid] = o

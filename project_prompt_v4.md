@@ -4,7 +4,9 @@
 
 > v3 → v4 주요 변경: **VLM 시각 자가검증(critic) 전면 제거**, **HITL-1 실제 블로킹 승인 구현**, **HITL-2 승인 시 코드가 자동 commit**, **revert를 main.py에서 결정론적으로 처리(의도층이 revert_to_turn 지정)**, **되묻기(clarification)를 형태층 tool에서 의도층+HITL 앞단으로 이관(tool 13→12개)**, **store_robot no-op 가드**, **check_feasibility issues에 수정 힌트**, **find_placement에 panel_toward_anchor 추가**, **시작 시 resume 제거(재시작=도크 초기화)**, **뷰어 중복 말풍선·GLB 스왑 race 수정**, **render.py 제거**.
 >
-> v4.1 패치: **find_placement에 connect 모드**(두 대 조합의 정밀 연결 좌표를 코드가 계산 — LLM 삼각함수 금지), **transform/move 직후 자동 validate_layout**(issues+fix 힌트를 결과에 실어 반환), **연결 자동 감지**(맞닿음 조건을 만족하는 패널 쌍은 충돌에서 제외 — slack 2cm vs tol 3cm 경계 오판 해소), **revert 대상 = '현재 상태와 다른' 가장 최근 커밋**(승인 자동 commit 후 no-op 방지, 프롬프트·fallback 모두), **commit_if_changed가 (entry, changed) 반환**(커밋 여부 역추론 제거), **HITL 대기 중 재접속 시 pending 요청 재전송**(F5 데드락 방지, req_id로 중복 방지), **되묻기 최대 2회 후 LLM이 잔여 정보 추론해 진행**, **handle() 예외 격리**(발화 하나의 실패가 세션을 죽이지 않음), **get_recent_context 슬림화**(메타 5필드+로봇 한 줄 요약), **GLB 스왑 후 inactive dim 재적용**, **stt.py에서 콘솔·Windows 경로 제거**(transcribe_bytes+로그만), **tests/ 제거**(테스트 스위트는 운용하지 않기로 함), **panel_away_from_anchor 추가**(두 값을 모두 명시해 '반대 값 뒤집기' 연산 제거 — 항상 toward로 여는 편향 수정. 어느 쪽을 열지는 규칙표·motif 힌트가 아니라 LLM이 '기능면이 몸·물건과 만나는 방향'으로 상황 판단), **move_robot 반환에 panel_orientation**(실행 후 실제 rot 기준 앵커별 toward/away 확정값 — 계획값 스테일 문제 차단), **형태층 마무리 발화 채팅 미표시**(승인 문구와 중복), **성인/아이 구분 제거**(user_composition 필드·이중 스케일 서술 삭제 — 구분 없이 동작, 성인 가정을 명시하지도 않음), **기능층 독립**(의도층→기능층(신규 LLM 호출 ask_function: 기존 가구 description 근거 중복·보완 판단 + 구현 가능성 판정)→형태층. HITL-1은 상황·인원만 확인, 가구는 HITL-2에서 이유와 함께 고지), **scenes 가구에 능력 description 추가**(5개 방 전부), **V자 골·∧자 지붕을 각도 목록의 고정 케이스로 명시**.
+> v4.1 패치: **find_placement에 connect 모드**(두 대 조합의 정밀 연결 좌표를 코드가 계산 — LLM 삼각함수 금지), **transform/move 직후 자동 validate_layout**(issues+fix 힌트를 결과에 실어 반환), **연결 자동 감지**(맞닿음 조건을 만족하는 패널 쌍은 충돌에서 제외 — slack 2cm vs tol 3cm 경계 오판 해소), **revert 대상 = '현재 상태와 다른' 가장 최근 커밋**(승인 자동 commit 후 no-op 방지, 프롬프트·fallback 모두), **commit_if_changed가 (entry, changed) 반환**(커밋 여부 역추론 제거), **HITL 대기 중 재접속 시 pending 요청 재전송**(F5 데드락 방지, req_id로 중복 방지), **되묻기 최대 2회 후 LLM이 잔여 정보 추론해 진행**, **handle() 예외 격리**(발화 하나의 실패가 세션을 죽이지 않음), **get_recent_context 슬림화**(메타 5필드+로봇 한 줄 요약), **GLB 스왑 후 inactive dim 재적용**, **stt.py에서 콘솔·Windows 경로 제거**(transcribe_bytes+로그만), **tests/ 제거**(테스트 스위트는 운용하지 않기로 함), **panel_away_from_anchor 추가**(두 값을 모두 명시해 '반대 값 뒤집기' 연산 제거 — 항상 toward로 여는 편향 수정. 어느 쪽을 열지는 규칙표·motif 힌트가 아니라 LLM이 '기능면이 몸·물건과 만나는 방향'으로 상황 판단), **move_robot 반환에 panel_orientation**(실행 후 실제 rot 기준 앵커별 toward/away 확정값 — 계획값 스테일 문제 차단), **형태층 마무리 발화 채팅 미표시**(승인 문구와 중복), **성인/아이 구분 제거**(user_composition 필드·이중 스케일 서술 삭제 — 구분 없이 동작, 성인 가정을 명시하지도 않음), **기능층 독립**(의도층→기능층(신규 LLM 호출 ask_function: 기존 가구 description 근거 중복·보완 판단 + 구현 가능성 판정)→형태층. HITL-1은 상황·인원만 확인, 가구는 HITL-2에서 이유와 함께 고지), **scenes 가구에 능력 description 추가**(5개 방 전부), **V자 골·∧자 지붕을 각도 목록의 고정 케이스로 명시**, **가구 방향 관습 원칙**('기능면을 사용자에게' 시중 편향 제거 — 마주 보고 쓰는 가구만 사람을 마주 보고, 곁 가구(사이드 테이블 등)는 짝 가구와 나란히·시선 앞은 비움. rot_suggest(항상 앵커를 마주 봄)는 마주 보는 관계에만 채택하고, 나란히 배치는 짝 가구 rot에 맞춘 뒤 move_robot 반환 panel_orientation으로 좌우 확정 — 'rot_suggest 강제' 규칙 완화), **형태의 출발점은 본체 원칙**(패널 중심 사고 교정 — toward/away 두 값이 배치를 '어느 패널을 향할까' 문제로 좁히는 편향 차단. 본체 윗면 40×40만으로 충분한 가구(1인 좌면·티테이블·스툴)는 패널 0°가 기본, 패널은 기능으로 정당화될 때만 여는 확장), **find_placement 조사 모드 전면 개편**(관계 라벨('<가구>_front'·open_area·wall_*)과 rot_suggest·toward/away를 조사 모드에서 제거 — 후보를 clearance+free(사방 빈 거리)+nearby(주변 사물 사실)로 중립 서술. '모든 자리가 무언가를 마주 본다' 편향의 구조적 원인 제거. rot_suggest·toward/away는 앵커 모드 전용. 조사 모드 좌우 근거는 move 후 panel_orientation 실측).
+>
+> v4.2 패치: **방 전환을 intent_type과 분리한 코드 파생 플래그로 처리**(confirm/revert를 제외하고 승인된 space가 현재 방과 다르면 전환), **패널 위치와 기능면 방향 분리**(`panel_on_anchor_side`/`panel_on_opposite_side`는 물리적 위치, `front_face_toward_anchor`는 각도별 앞면 방향), **45°=바깥쪽·90°=위쪽·135°/180°=본체 쪽이라는 기계적 사실을 코드와 프롬프트에 명시**, **modify/add 분류 보강**(없던 기능 추가는 add), **LLM-visible commit_layout 제거**(ask_user 승인 시 자동 commit이 단일 확정 경로).
 
 ## 1. 프로젝트 개요
 
@@ -53,7 +55,7 @@
 - confirm → 스냅샷 확정. **HITL-2 승인 시 이미 코드가 자동 commit하므로, confirm 발화는 그새 변화가 있을 때만 새로 commit**(commit_if_changed). turn 중복 증가 방지.
 - modify/add/remove → 형태층만 재실행 (의도 재해석 불필요). **최소 편집**: 요청과 무관한 로봇은 그대로 유지, 놀고 있는 자원(0° 패널, 미사용 로봇)부터 활용
 - revert → **main.py에서 결정론적으로 처리**. 의도층이 준 `revert_to_turn`으로 `revert_to(turn)`만 호출하고 형태층 LLM 생성은 스킵. **fallback·안전망: 대상이 null이거나 복원해도 무변화면 '현재 상태와 다른 가장 최근 커밋'을 선택** (승인 시 자동 commit되므로 최신 커밋==현재 상태 → 최신 turn 복원은 no-op이기 때문).
-- new_scene → 의도층부터 전체 재실행. **space가 바뀌면 방 전환 포함** (아래 10절). 이전 구성에 얽매이지 않고 재구성하며, **새 구성에 쓰이지 않으면서 지금 active인 로봇만 store_robot으로 정리** (이미 inactive면 호출 불필요 — no-op)
+- new_scene → 의도층부터 전체 재실행. 이전 구성에 얽매이지 않고 재구성하며, **새 구성에 쓰이지 않으면서 지금 active인 로봇만 store_robot으로 정리** (이미 inactive면 호출 불필요 — no-op). **방 전환은 intent_type과 독립적으로, HITL-1 승인 후 유효한 space가 현재 방과 다르면 실행한다**(confirm/revert 제외).
 
 **되묻기(clarification)는 HITL 앞단에서 처리**: 의도층이 `needs_clarification=true`를 내면, main이 HITL-1보다 먼저 사용자에게 되묻고(최대 2회) 답을 발화에 보태 의도를 재분석한 뒤 HITL-1로 넘어간다. (v3에서 형태층 tool이던 ask_clarification은 제거됨.) **2회 후에도 미해소면 발화에 '(되묻기 한도 도달)'을 붙여 1회 재분석 — LLM이 남은 정보를 가장 그럴듯하게 추론해 채우고 진행한다** (형태층은 정보가 해소된 intent만 받는다는 전제 유지).
 
@@ -76,25 +78,26 @@ history = [
 - space도 함께 기록 → "아까 거실에서처럼" 해석 가능
 - commit마다 logs/session.json에 저장 (로그·디버깅용)
 
-## 6. Tool 목록 (12개, 전부 tools/ 폴더에 정의)
+## 6. Tool 목록 (11개, 전부 tools/ 폴더에 정의)
 
 ### placement_tools.py (6)
 - `transform_robot(robot, panel_left, panel_right, furniture)` — 로봇 변형. size 개념 없음, 두 패널 각도(0/45/90/135/180)로만 변형. 변경 직후 자동 push_state. **실행 직후 코드가 validate_layout을 자동 실행** — issues(+fix 힌트)가 있으면 결과에 실어 LLM이 즉시 자가수정 (LLM의 check_feasibility 호출에 의존하지 않는 보장 레이어)
-- `move_robot(robot, x, y, rot)` — 이동 + 회전. 변형과 분리. 이동 거리 비례 애니메이션 duration. **실행 직후 자동 검증(transform과 동일)**. **반환에 `panel_orientation` 포함**: 실행 후 실제 rot·위치 기준으로 주변 앵커(150cm 내 가구·active 로봇)별 toward/away 패널을 코드가 재계산한 확정값 — LLM이 rot_suggest를 안 따르거나 후보를 섞어 써서 계획값(panel_toward_anchor)이 무효가 돼도, transform 직전에 항상 신선한 진실이 공급된다. 패널 축에서 ≈70° 이상 벗어난 앵커는 off_axis 표시(고정 측면 방향)
+- `move_robot(robot, x, y, rot)` — 이동 + 회전. 변형과 분리. 이동 거리 비례 애니메이션 duration. **실행 직후 자동 검증(transform과 동일)**. **반환에 `panel_orientation` 포함**: 실행 후 실제 rot·위치 기준으로 주변 앵커(150cm 내 가구·active 로봇)별 `panel_on_anchor_side`/`panel_on_opposite_side`(물리적 위치)와 `front_face_toward_anchor`(45°=앵커 쪽 패널, 90°=either, 135°/180°=반대쪽 패널)를 코드가 재계산한다. 위치와 기능면을 분리해 toward 어휘 편향과 계획값 스테일 문제를 막는다. 패널 축에서 ≈70° 이상 벗어난 앵커는 off_axis 표시(고정 측면 방향)
 - `store_robot(robot)` — "치워줘". 홈 도크 복귀 + 초기화(패널 0°)를 원자 처리. **이미 inactive(도크 정리 완료)인 로봇이면 no-op으로 반환하고 뷰어 push도 스킵** (중복 호출로 tool 한도 낭비 방지)
 - `check_feasibility(robots, connections)` — 물리 검증(경계·가구·로봇 겹침) + 연결 기하(패널 끝 맞닿는 거리). 반환: `{"feasible": bool, "issues": [...]}`. **각 issue에 수정 방향 힌트**(`fix: {dx, dy, note}`, 겹침 `penetration`)를 실어 LLM 재시도 수렴을 돕는다. **조화 판단은 이 tool이 하지 않음 → LLM 자가 점검 + HITL-2 몫**
-- `find_placement(footprint_radius, near?, avoid[], connect?, ...)` — 유효 후보 좌표 제안. near에 가구 id면 인접 후보(tag: <id>_front/_side/_back), 비우면 방 전체 가용 공간 조사(가구 앞·open_area·벽가). **각 후보에 tag·clearance·rot_suggest(앵커 바라보는 각도)·`panel_toward_anchor`/`panel_away_from_anchor`("left"/"right" — 그 rot에서 앵커를 향하는/등지는 패널, 둘 다 명시)를 부여** — LLM이 좌우를 삼각함수로 추론하거나 반대 값을 뒤집는 연산을 하지 않게 한다. 어느 쪽을 열지는 **motif나 규칙표가 아니라 LLM이 상황으로 판단**한다 — 기준은 '기능면이 몸·물건과 만나는 방향'이고 항상 toward가 정답이 아니다(예: 파티션이 설 자리는 앵커가 아니라 가려야 할 시선 쪽). 두 값은 rot_suggest 채택 시에만 유효. user 좌표는 쓰지 않음. **`connect` 모드(near=앵커 로봇 이름): 두 대 조합의 정밀 연결 좌표를 코드가 계산** — face(마주보고 패널 맞대기: rot 차 180°, 거리 = 40 + 30·sinθa + 30·sinθb, panels_touching 통과 보장, 맞댈 패널 moving_side 반환) / side(나란히: rot 동일, 본체 맞대기). 후보가 없으면 note를 실어 반환(좌표 지어내기 방지)
+- `find_placement(footprint_radius, near?, avoid[], connect?, ...)` — **로봇이 가구가 될 수 있는 가용 공간 추출**. **조사 모드(near 없음)**: 관계 라벨·rot_suggest 없이 `clearance` + `free` + `nearby`라는 기하 사실만 반환. **앵커 모드(near=가구 id/로봇 이름)**: 인접 후보에 rot_suggest와 `panel_on_anchor_side`/`panel_on_opposite_side`/`front_face_toward_anchor`를 반환한다. 위치 정보는 기능면 방향이 아니며, LLM은 활동상 필요한 면 방향을 먼저 판단한 뒤 코드가 제공한 각도별 매핑으로 left/right를 선택한다. user 좌표는 쓰지 않음. **`connect` 모드**는 두 대 조합의 정밀 연결 좌표를 코드가 계산한다.
 - `furniture_mapping(activity)` — 활동→가구 조합 참고표 조회. **강제 아닌 reference**. motif에 capacity(권장 인원) 필드
 
-### context_tools.py (5)
+### context_tools.py (4, LLM 노출 기준)
 - `robot_states()` — 로봇 현재 상태 조회
 - `get_environment()` — 현재 방의 scene JSON(방 크기·기존 가구) 조회
 - `get_recent_context(n)` — 최근 n턴 history 조회 ("아까 그거" 해석용). **슬림 반환**: 메타 5필드(turn/space/intent_type/utterance/description) + 로봇당 한 줄 요약 — full state 스냅샷은 LLM에 안 줌(복원은 revert_to가 코드로 처리)
-- `commit_layout(description)` — 승인된 상태를 스냅샷 확정. **보통은 부를 필요 없다**(ask_user 승인 시 코드가 자동 commit). 변화 없으면 no-op(중복 커밋 방지)
 - `revert_to(version)` — turn 번호로 상태 복원. **반환은 슬림**(`{turn, space, description}` — 전체 state는 코드가 이미 복원했으니 LLM에 안 줌)
 
+`context_tools.commit_layout()` 구현은 내부 호환용으로 남아 있지만 registry.TOOLS에는 등록하지 않는다. 배치 확정은 `ask_user` 승인 시 자동 commit하는 한 경로만 사용한다.
+
 ### viewer_tools.py (1)
-- `ask_user(message)` — 결과 승인 요청 (HITL-2 게이트). **승인받으면 그 자리에서 코드가 배치를 자동 commit**(commit_if_changed). approved=false면 feedback을 반영해 수정
+- `ask_user(message)` — 결과 승인 요청 (HITL-2 게이트). **승인받으면 그 자리에서 코드가 배치를 자동 commit**(commit_if_changed). approved=false면 feedback을 반영해 수정. **메시지 규칙**: 사람의 언어로 2~3문장 — 패널 각도·rot·좌표 같은 내부 용어·수치 금지, complement_note가 있으면 '(기존 가구)가 (필요)를 해주니, 로봇은 (보완 역할)이 되었어요' 서사로 이유 고지
 
 주의: 뷰어 갱신은 tool이 아님. transform/move/store/revert가 상태 변경 직후 코드가 자동으로 push_state() 호출. 방 전환(scene_change)도 자동. **되묻기(ask_clarification)는 tool이 아니라 의도층 신호(needs_clarification)로 main이 HITL 앞단에서 처리**한다(4절).
 
@@ -102,9 +105,9 @@ history = [
 
 - **tools/** = LLM에게 보이는 껍데기. 함수 + 스키마 정의. 내용은 services 호출 한두 줄
 - **services/** = 순수 계산·상태. LLM 없이 pytest로 단위 테스트 가능. 여러 tool이 공유
-- LLM이 호출 가능한 건 registry.TOOLS에 스키마가 등록된 12개뿐. services 함수는 LLM에게 보이지 않음
+- LLM이 호출 가능한 건 registry.TOOLS에 스키마가 등록된 11개뿐. services 함수와 내부 `commit_layout` helper는 LLM에게 보이지 않음
 - agent.py는 tool을 갖지 않음. LLM의 tool_call(JSON)을 받아 registry.HANDLERS에서 이름으로 찾아 실행하는 중계자. `[tool]` 로그는 인자·결과 JSON을 자르지 않고 전부 출력(ensure_ascii=False)
-- tool ↔ services 매핑: robot_states→SceneState.states / get_environment→environment()+furniture() / get_recent_context→recent(n) / commit_layout→commit_if_changed / revert_to→revert_to / transform_robot→transform / move_robot→move / store_robot→store(no-op 가드는 tool 층) / check_feasibility→collision.validate_layout+panels_touching / find_placement→placement.find_placement
+- tool ↔ services 매핑: robot_states→SceneState.states / get_environment→environment()+furniture() / get_recent_context→recent(n) / revert_to→revert_to / transform_robot→transform / move_robot→move+panel_orientation / store_robot→store(no-op 가드는 tool 층) / check_feasibility→collision.validate_layout+panels_touching / find_placement→placement.find_placement
 
 ## 8. 프로젝트 구조
 
@@ -119,13 +122,13 @@ project/
 ├── scenes/                # 방마다 JSON 하나
 │   ├── living_room.json / bedroom.json / kitchen.json / bathroom.json / balcony.json
 ├── tools/
-│   ├── registry.py        # ✅ TOOLS(strict 스키마 12개) + HANDLERS + dispatch
+│   ├── registry.py        # ✅ TOOLS(strict 스키마 11개) + HANDLERS + dispatch
 │   ├── __init__.py        # ✅ 공유 STATE(scene·client·viewer·intent·utterance·auto_approve) + push_state
 │   ├── placement_tools.py # ✅ 6개 (store_robot no-op 가드 포함)
-│   ├── context_tools.py   # ✅ 5개 (commit_layout idempotent, revert_to slim)
+│   ├── context_tools.py   # ✅ 구현 5개, LLM 노출 4개 (commit_layout은 내부 호환용, revert_to slim)
 │   └── viewer_tools.py    # ✅ ask_user 1개 (HITL-2 승인 시 _commit_on_approval 자동 커밋). critic 훅·ask_clarification 제거됨
 ├── services/
-│   ├── placement.py       # ✅ find_placement(tag/clearance/rot_suggest/panel_toward_anchor) + feasibility(물리+연결)
+│   ├── placement.py       # ✅ find_placement + 패널 위치/각도별 기능면 방향 + feasibility(물리+연결)
 │   ├── collision.py       # ✅ OBB(SAT) 충돌·slack 2cm·경계 clamp·밀어내기·연결 검증. validate_layout issues에 fix 힌트
 │   ├── scene.py           # ✅ SceneState: scene+robots+history + commit/commit_if_changed/revert/recent + load_scene + save/resume
 │   └── stt.py             # ✅ transcribe_bytes(브라우저 오디오→Groq) + 로그 (콘솔·Windows 경로 제거됨)
@@ -165,17 +168,18 @@ project/
 - **기존 가구는 장애물이자 배치 앵커**. 원칙: **"중복하지 말되, 반드시 기여하라"** — 단, 중복 판단은 이름·카테고리 일치가 아니라 **적합성**이다. 기존 가구가 그 활동의 필요를 높이·크기·전용 면적 면에서 *실제로* 충족할 때만 목록에서 빼라(부엌 식탁=식사 면 충족→빼기 / 거실 낮은 테이블≠공작 작업대→안 빼고 로봇이 제대로 된 작업대 제공이 기여). 활동 지원 발화에만 적용하고 remove는 예외
 - 의도층이 발화에서 space 추론. 애매하면 unknown → needs_clarification
 - 전환 흐름: SceneState.load_scene(space) → collision 장애물 교체 → `scene_change` push → viewer가 buildRoom() → 로봇은 새 방 도크에서 시작
-- 방 전환은 intent_type new_scene의 특수 케이스. history에 space 기록
+- 방 전환은 `change_space = valid space ∧ current와 다름 ∧ intent_type∉{confirm,revert}`라는 코드 파생 플래그로 처리한다. history에 space 기록
 
 ## 11. 구현 순서 및 현황
 
 1. ~~의도층 파이프라인~~ ✅ — main.py + services/stt.py + agent.ask_intent + prompts.py
 2. ~~services 층~~ ✅ — collision(OBB/SAT) + scene(SceneState) + placement(find_placement)
-3. ~~tools/ 구현 + agent.run_agent~~ ✅ — strict 스키마 12개, tool 루프, main 라우팅
+3. ~~tools/ 구현 + agent.run_agent~~ ✅ — strict 스키마 11개, tool 루프, main 라우팅
 4. ~~시각 자가검증(VLM critic)~~ — **제거됨** (도구 호출 과다. 조화 판단은 AGENT_PROMPT 자가 점검 + HITL-2로 대체. 13절)
 5. ~~viewer/~~ ✅ — FastAPI+WS 서버, three.js(방·가구·로봇 GLB 스왑, race 가드·fallback 복구), HITL 승인 버튼(승인 시 자동 commit)
-6. models/ 가구 GLB 조달 + baseline 수동 모드 + 아파트 통합 뷰(선택) — 실험 직전
-7. **로깅 (플러스알파)** — logs/metrics.json: 거부된 제안 수, check_feasibility 실패 횟수, 되묻기 발동, HITL-2 수정 턴. 실험 지표(통과율·수정 턴 수)의 분모를 실행 중 수집
+6. ~~기능층 독립 (ask_function)~~ ✅ — v4.1. motif 키 매칭 + 구현 가능성 판정 + complement_note
+7. ~~baseline 수동 모드~~ ✅ — `--baseline` 플래그: 뷰어 수동 패널 → manual_command → LLM 없이 SceneState 직접 호출, '완료'=commit+metrics (상세는 14절 (1))
+8. **남은 작업은 14절 TODO(우선순위) 참조** — 로깅 필드 확장, find_placement 앵커 탐색 개선, models/ 가구 GLB 조달·아파트 통합 뷰(선택)
 
 ## 12. 로봇 확정 스펙 (BoT²)
 
@@ -215,3 +219,24 @@ v3에서 계획·구현했던 VLM 시각 자가검증(배치를 이미지로 렌
 - **제거 이유**: 턴마다 렌더+VLM 호출이 도구 호출·지연을 크게 늘렸고, HITL-2(사용자 공간 게이트)가 조화 확인을 이미 담당함.
 - **대체**: 배치의 '조화'는 (1) AGENT_PROMPT의 **실행 전 자가 점검** 지시(LLM이 완성 구성을 사용자 눈으로 훑어 어색함을 스스로 교정)와 (2) **HITL-2 승인**이 담당. check_feasibility는 물리(경계·겹침·연결)만 검증하고 조화는 판단하지 않는다.
 - 관련 제거 항목: `services/render.py`, `prompts.CRITIC_PROMPT`/`CRITIC_SCHEMA`, `config.VISUAL_CHECK`/`CRITIC_*`, `viewer_tools._critic_check`, `STATE["critic_rounds"]`, registry의 ask_user `visual_check` 안내 문구.
+
+## 14. TODO (우선순위 — 아직 구현하지 않음)
+
+### (1) Baseline 모드 — 사용자가 직접 로봇 배치 (실험 비교군) — ✅ 구현됨
+- **목적**: LLM agent 경로와 수동 배치의 시간·조작 부하·결과 품질 비교 (실험 baseline).
+- **구현 (확정된 설계)**: 프로세스 단위 조건 분리 — `python main.py --baseline`이면 LLM·STT를 아예 로드하지 않고 main의 `baseline_loop`가 뷰어의 `manual_q`만 소비한다 (세션 내 토글 아님 — metrics 오염·HITL race 방지).
+  - **UI**: `PopupViewer(baseline=True)` → scene_change 메시지에 `baseline: true` → 브라우저가 채팅 입력을 숨기고 수동 패널 표시. 로봇 선택(BOT 1/2, 발밑 초록 링), 이동 ±20cm·회전 ±45° 버튼, 패널 좌/우 5단계 버튼(현재 각도 하이라이트), 도크로 치우기, 방 전환 드롭다운, '완료(배치 확정)'. STT 녹음도 비활성.
+  - **명령**: 버튼 1회 = `manual_command` 1건 = 조작 1회. 브라우저는 델타·목표값만 보내고(좌표 진실은 파이썬) baseline_loop가 `SceneState.move/transform/store/load_scene`을 직접 호출 — clamp·자동 push_state 등 코드 보장 레이어는 agent 경로와 동일.
+  - **검증은 경고만**: 조작마다 `validate_layout` 실행, 위반은 차단하지 않고 자막(⚠) 경고 — '완료' 시 잔여 issues를 기록해 '결과 품질' 지표로 삼는다 (차단하면 품질 차이가 사라져 비교군 의미 상실).
+  - **metrics**: '완료' = `commit_if_changed(intent_type="manual")` + entry["metrics"]에 `{mode, ops(종류별), ops_total, warnings, issues_at_commit, elapsed_s}` 기록 후 session.json 재저장, 카운터 리셋(배치 과제 단위 측정).
+
+### (2) session.json / metrics 로깅 필드 확장 — ✅ 구현됨
+- **목적**: 실험 지표(HITL 통과율·수정 턴 수·소요 시간)의 분모·분자를 실행 중 자동 수집.
+- **저장 구조 (확정)**: 분석 데이터는 **`logs/metrics.jsonl` 신설** — 발화(agent) / 완료(baseline) 1건 = JSONL 1줄 append. session.json과 분리한 이유: 커밋 없이 끝난 발화(HITL-1 취소 등)도 남아야 통과율 분모가 잡히고, flat 구조여야 `pandas.read_json(lines=True)`로 조건 간 비교가 바로 된다. session.json은 2가지만 추가 — commit entry에 `timestamp`(ISO8601, scene.py), 커밋된 턴의 `entry["metrics"]` 스냅샷.
+- **레코드 스키마 (agent·baseline 공통 최상위)**: `session_id`(시작시각+mode) / `mode`(agent|baseline) / `seq` / `utterance` / `input_mode`(voice|typed|manual) / `space` / `intent_type` / `outcome`(committed|cancelled|no_change|reverted|no_commit|error) / `turn` / `t_received` / `duration_s` / `issues_at_commit`(커밋 시점 잔여 물리 위반 = 품질 지표) / `error`. agent 전용 카운터: `clarify_rounds`·`clarify_limit_hit`, `hitl1_attempts/rejects/feedback_depth`, `hitl2_attempts/rejects`, `func_excluded`·`func_all_infeasible`, `tool_calls`(이름별)+`tool_calls_total`, `feasibility_failures`, `auto_validate_issues`, `llm_calls`. baseline 전용: `ops`(종류별)·`ops_total`·`warnings`.
+- **수집 구현 (의존 방향 준수 — services는 카운터를 모름)**: `tools.STATE["metrics"]` + `new_metrics()/metric()/metric_set()/metric_tool()` 헬퍼(None이면 no-op). 증가 지점 — registry.dispatch(tool 호출 수) / placement_tools(check_feasibility 실패·자동 검증 issues) / viewer_tools.ask_user(HITL-2) / agent.py(llm_calls) / main.handle(되묻기·HITL-1·outcome). **main.handle_logged**가 발화마다 카운터를 리셋하고 종료 시 레코드 작성 — HITL-1 거부 피드백의 재귀 재분석도 같은 레코드에 누적, 예외도 격리·기록(outcome=error). input_mode는 viewer.js가 `user_utterance`에 태그(voice|typed).
+- **논문 지표 매핑**: HITL-1/2 통과율 = 1−rejects/attempts · 수정 턴 수 = hitl2_rejects (+modify 발화 수) · 과제 소요 시간 = duration_s · 조작 부하 = 발화 수+HITL 버튼(agent) vs ops_total(baseline) · 품질 = issues_at_commit(두 조건 동일 기준) · 시스템 비용 = tool_calls_total·llm_calls.
+
+### (3) find_placement 앵커 링 탐색(15°)의 사각지대
+- **문제점**: 앵커 모드는 앵커 둘레 '한 겹의 링'을 15° 간격으로만 훑는다. 링 반지름이 고정(앵커 반폭 + 후보 반폭 + 5cm)이라 — (a) 앵커가 벽·다른 가구에 붙어 있으면 링 대부분이 침범돼 후보가 0~2개로 급감하고, (b) 링 바로 바깥에 충분한 빈 공간이 있어도 보지 못하며, (c) 15° 간격이라 좁은 틈 사이의 유효 자리를 건너뛴다. 후보 0개면 note만 반환되고 LLM이 재시도 비용을 치른다.
+- **해결 방향 (택1 또는 조합)**: ① **다중 링** — 후보가 k개 미만이면 반지름을 한 단계(+20cm)씩 늘려 2~3겹까지 재탐색, 앵커에서 가까운 순 정렬 유지. ② **조사 모드 폴백** — 앵커 모드 후보 0개면 방 전체 조사(open_area·벽가)로 자동 전환하되 '앵커와의 거리'를 정렬 키에 추가해 가장 가까운 가용 공간을 제안. ③ **각도 세분화** — 후보 부족 시에만 15°→7.5°로 재시도 (평상시 비용 증가 없음). 셋 다 `services/placement.find_placement` 내부에서 완결되므로 tool 스키마·프롬프트·registry는 무변경 — 테스트 없이도 실측 스크립트로 검증 가능.

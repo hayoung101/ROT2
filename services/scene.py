@@ -8,6 +8,7 @@
 import copy
 import json
 import os
+from datetime import datetime
 
 import config
 from services import collision
@@ -98,6 +99,7 @@ class SceneState:
         self.turn += 1
         entry = {"turn": self.turn, "intent_type": intent_type, "space": self.space,
                  "utterance": utterance, "description": description,
+                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                  "state": copy.deepcopy(self.robots)}
         self.history.append(entry)
         self.save()

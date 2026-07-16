@@ -3,7 +3,7 @@
 import json
 import os
 
-from tools import STATE, push_state
+from tools import STATE, metric, push_state
 from services import collision, placement
 
 
@@ -17,6 +17,7 @@ def _with_issues(st):
     sc = _scene()
     issues = collision.validate_layout(sc.states(), sc.environment())
     if issues:
+        metric("auto_validate_issues")   # 실험 metrics: 실행 후 자동 검증 위반 횟수
         st = dict(st)
         st["issues"] = issues
         st["warning"] = "실행은 됐지만 위 issues가 남아 있다 — fix 힌트대로 move_robot로 해소하라"
@@ -37,7 +38,7 @@ def move_robot(robot, x, y, rot=None):
     # 애니메이션 시간 = 이동 거리 비례 (30cm/s 감각, 0.8~4초 clamp) — 순간이동 방지
     dist = math.hypot(st["x"] - before["x"], st["y"] - before["y"]) if before else 0
     push_state(duration=max(0.8, min(4.0, dist / 30.0)))
-    # 실행 후 실제 rot·위치 기준의 확정 toward/away — 후보의 계획값이 무효가 됐어도
+    # 실행 후 실제 rot·위치 기준의 패널 위치·기능면 방향 — 후보의 계획값이 무효가 됐어도
     # transform 직전에 항상 신선한 진실을 공급한다 (LLM은 제안, 코드는 보장).
     ori = placement.panel_orientation(st, sc.environment(), sc.states())
     if ori:
@@ -67,7 +68,10 @@ def check_feasibility(robots, connections=None):
         base = dict(merged.get(p.get("robot"), {}))
         base.update({k: v for k, v in p.items() if v is not None})
         merged[p["robot"]] = base
-    return placement.feasibility(list(merged.values()), sc.environment(), connections)
+    res = placement.feasibility(list(merged.values()), sc.environment(), connections)
+    if not res.get("feasible", True):
+        metric("feasibility_failures")   # 실험 metrics: 사전 검증 실패 횟수
+    return res
 
 
 def find_placement(footprint_radius=None, near=None, avoid=None,

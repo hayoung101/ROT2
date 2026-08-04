@@ -48,22 +48,6 @@
             user-select: none; }
   #micBtn.rec { background: #c62828; animation: pulse 1s infinite; }
   @keyframes pulse { 50% { opacity: .55; } }
-
-  /* ---- baseline 수동 조작 패널 (--baseline일 때만 표시) ---- */
-  #manualPanel { display: none; padding: 10px 12px; border-top: 1px solid #ded6c8;
-                 background: #f6f1e7; }
-  body.baseline #manualPanel { display: block; }
-  body.baseline #chatInput { display: none; }
-  .mRow { display: flex; align-items: center; gap: 5px; margin: 6px 0; flex-wrap: wrap; }
-  .mLabel { font-size: 12px; color: #8a8173; width: 68px; flex-shrink: 0; }
-  #manualPanel button { padding: 7px 10px; border: 1px solid #d7cebf; border-radius: 8px;
-                        background: #fffdf8; color: #2b2f33; cursor: pointer;
-                        font-size: 13px; }
-  #manualPanel button.sel { background: #49717d; color: #fff; border-color: #49717d; }
-  #manualPanel select { padding: 6px 8px; border-radius: 8px; border: 1px solid #d7cebf;
-                        background: #fffdf8; font-size: 13px; margin-left: auto; }
-  #doneBtn { background: #2e7d32 !important; color: #fff !important;
-             border-color: #2e7d32 !important; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -82,49 +66,6 @@
   <div id="chat">
     <div id="chatHeader">로봇 가구 어시스턴트</div>
     <div id="chatLog"></div>
-    <div id="manualPanel">
-      <div class="mRow">
-        <span class="mLabel">로봇</span>
-        <button class="rBtn sel" data-robot="BOT 1">BOT 1</button>
-        <button class="rBtn" data-robot="BOT 2">BOT 2</button>
-        <select id="roomSel" title="방 전환">
-          <option value="living_room">living_room</option>
-          <option value="bedroom">bedroom</option>
-          <option value="kitchen">kitchen</option>
-          <option value="bathroom">bathroom</option>
-          <option value="balcony">balcony</option>
-        </select>
-      </div>
-      <div class="mRow">
-        <span class="mLabel">이동·회전</span>
-        <button class="mvBtn" data-dx="0" data-dy="20">↑</button>
-        <button class="mvBtn" data-dx="0" data-dy="-20">↓</button>
-        <button class="mvBtn" data-dx="-20" data-dy="0">←</button>
-        <button class="mvBtn" data-dx="20" data-dy="0">→</button>
-        <button class="rtBtn" data-drot="45">⟲ 45°</button>
-        <button class="rtBtn" data-drot="-45">⟳ 45°</button>
-      </div>
-      <div class="mRow">
-        <span class="mLabel">왼쪽 패널</span>
-        <button class="pBtn" data-side="left" data-angle="0">0°</button>
-        <button class="pBtn" data-side="left" data-angle="45">45°</button>
-        <button class="pBtn" data-side="left" data-angle="90">90°</button>
-        <button class="pBtn" data-side="left" data-angle="135">135°</button>
-        <button class="pBtn" data-side="left" data-angle="180">180°</button>
-      </div>
-      <div class="mRow">
-        <span class="mLabel">오른쪽 패널</span>
-        <button class="pBtn" data-side="right" data-angle="0">0°</button>
-        <button class="pBtn" data-side="right" data-angle="45">45°</button>
-        <button class="pBtn" data-side="right" data-angle="90">90°</button>
-        <button class="pBtn" data-side="right" data-angle="135">135°</button>
-        <button class="pBtn" data-side="right" data-angle="180">180°</button>
-      </div>
-      <div class="mRow">
-        <button id="storeBtn">도크로 치우기</button>
-        <button id="doneBtn">완료 (배치 확정)</button>
-      </div>
-    </div>
     <div id="chatInput">
       <input id="msgInput" placeholder="입력하거나, 🎤(또는 스페이스바)를 누른 채 말하세요" autocomplete="off">
       <button id="micBtn" title="누르고 있는 동안 녹음">🎤</button>

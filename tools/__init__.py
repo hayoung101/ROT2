@@ -3,7 +3,6 @@
 
 STATE = {
     "scene": None,        # SceneState 인스턴스
-    "client": None,       # OpenAI client
     "viewer": None,       # PopupViewer 인스턴스 (없으면 콘솔 fallback)
     "intent": None,       # 현재 턴의 의도층 출력
     "utterance": "",      # 현재 턴의 발화 원문
@@ -12,9 +11,13 @@ STATE = {
 }
 
 
-def init(scene_state, client=None, viewer=None):
+def scene():
+    """STATE["scene"] 단축 — tool 모듈들이 _scene으로 alias해 쓴다 (중복 정의 방지)."""
+    return STATE["scene"]
+
+
+def init(scene_state, viewer=None):
     STATE["scene"] = scene_state
-    STATE["client"] = client
     STATE["viewer"] = viewer
 
 

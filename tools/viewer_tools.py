@@ -4,19 +4,17 @@
 ask_user는 HITL-2 게이트다 — 배치 결과를 사용자에게 한 번 승인받고,
 승인 즉시 코드가 배치를 확정한다. (되묻기는 의도 단계에서 HITL 앞단에 처리 → main.py)"""
 from tools import STATE, metric
+from tools.context_tools import commit_layout
 
 
 def _commit_on_approval(message):
     """HITL-2 승인 즉시 코드가 배치를 확정한다 (LLM의 commit 호출에 의존하지 않음).
-    변화가 없으면 재커밋하지 않는다."""
-    sc = STATE.get("scene")
-    if sc is None:
+    커밋 로직은 commit_layout 한 벌만 쓴다 — 변화가 없으면 재커밋하지 않는다."""
+    if STATE.get("scene") is None:
         return
-    intent = STATE.get("intent") or {}
-    entry, changed = sc.commit_if_changed(message, intent.get("intent_type", "new_scene"),
-                                          STATE.get("utterance", ""))
+    res = commit_layout(message)
     viewer = STATE.get("viewer")
-    if changed and viewer is not None:   # 실제로 커밋됐을 때만 안내 (멱등). turn 번호는 내부 개념 — 노출 금지
+    if not res["noop"] and viewer is not None:   # 실제로 커밋됐을 때만 안내 (멱등). turn 번호는 내부 개념 — 노출 금지
         viewer.chat("system", "배치가 확정되었습니다.")
 
 

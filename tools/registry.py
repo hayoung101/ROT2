@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""TOOLS(스키마 12개) + HANDLERS(이름→함수) + dispatch.
+"""TOOLS(스키마 11개) + HANDLERS(이름→함수, TOOLS에서 자동 생성) + dispatch.
 
 스키마의 description은 프롬프트의 일부다 — 규칙이 아니라 사용법과 원칙을 담는다."""
 import config
@@ -126,19 +126,23 @@ TOOLS = [
           {"message": {"type": "string", "description": "무엇을 어떻게 배치했는지 요약한 승인 요청 문구"}}),
 ]
 
-HANDLERS = {
-    "transform_robot": placement_tools.transform_robot,
-    "move_robot": placement_tools.move_robot,
-    "store_robot": placement_tools.store_robot,
-    "check_feasibility": placement_tools.check_feasibility,
-    "find_placement": placement_tools.find_placement,
-    "furniture_mapping": placement_tools.furniture_mapping,
-    "robot_states": context_tools.robot_states,
-    "get_environment": context_tools.get_environment,
-    "get_recent_context": context_tools.get_recent_context,
-    "revert_to": context_tools.revert_to,
-    "ask_user": viewer_tools.ask_user,
-}
+# HANDLERS는 TOOLS에서 자동 생성한다 — 스키마에 이름을 추가하면 아래 세 모듈 중
+# 하나에 같은 이름의 함수가 반드시 있어야 하고, 없으면 import 시점에 바로 실패한다
+# (호출 시점의 KeyError보다 빨리 드러나게 — 스키마만 추가하고 함수를 빠뜨리는 실수 방지).
+_MODULES = (placement_tools, context_tools, viewer_tools)
+
+
+def _handler(name):
+    for m in _MODULES:
+        fn = getattr(m, name, None)
+        if callable(fn):
+            return fn
+    raise RuntimeError(
+        "TOOLS 스키마 '%s'에 대응하는 함수가 없습니다 "
+        "(placement_tools/context_tools/viewer_tools 중 하나에 정의할 것)" % name)
+
+
+HANDLERS = {t["name"]: _handler(t["name"]) for t in TOOLS}
 
 
 def dispatch(name, args):

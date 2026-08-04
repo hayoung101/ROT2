@@ -1,13 +1,16 @@
-// three.js 뷰어: buildRoom(scene JSON) + 로봇 GLB 스왑 로드 + 상태 보간.
+// three.js 뷰어: buildRoom(scene JSON) + 로봇 GLB 로드 + 상태 보간.
 //
 // 좌표 규약 (collision.py와 일치시킬 것):
 //   방 (x, y) cm, y는 '위쪽' → three: X = x - w/2, Z = d/2 - y (바닥 = XZ 평면)
 //   rot(도, CCW) → rotation.y = rad(rot)  (이 매핑에서 부호가 정확히 일치)
-//   로봇 GLB: 단위 mm(×0.1), 파일명 robot_<L>x<R>.glb, 모델 -z = 왼쪽 패널.
-//   본체 중심 오프셋 (전 파일 공통): (255.922, 342.419(바닥), 87.751) mm
+//   로봇 GLB: robot_animated.glb 1개, 단위 mm(×0.1), 모델 -z = 방의 왼쪽 패널.
+//   본체 중심 오프셋: (255.922, 342.419(바닥), 87.751) mm
+//   패널은 피벗 노드를 직접 회전시켜 만든다 (각도별 파일 스왑 없음).
+//   주의: 모델 노드 명명이 방 규약과 반대 — right_wing_pivot_anim이 -z(방 왼쪽)에 있다.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const USE_GLB = true;                       // false면 조립식 로봇만 사용
 const ROBOT_COLORS = { 'BOT 1': 0xf0ffff, 'BOT 2': 0xe6fbff };
@@ -65,10 +68,14 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 const loader = new GLTFLoader();
+// robot_animated.glb는 DRACO로 압축돼 있고(extensionsRequired), three가 디코더를 번들하지
+// 않으므로 경로 지정이 반드시 필요하다. index.html의 three와 같은 CDN·같은 버전을 쓴다.
+const draco = new DRACOLoader();
+draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+loader.setDRACOLoader(draco);
 let room = { w: 400, d: 300 };
 let roomGroup = null;
 const robots = new Map();      // name -> RobotView
-const glbCache = new Map();    // "LxR" -> Promise<scene template>
 
 const X = x => x - room.w / 2;
 const Z = y => room.d / 2 - y;
@@ -118,7 +125,13 @@ function createFloorMaterial() {
 
 // ---------- 방 ----------
 function buildRoom(sceneJson) {
-  if (roomGroup) scene3.remove(roomGroup);
+  if (roomGroup) {
+    scene3.remove(roomGroup);
+    roomGroup.traverse(o => {   // GPU 리소스 해제 (scene_change마다 누적 방지)
+      o.geometry?.dispose();
+      for (const m of [].concat(o.material || [])) { m.map?.dispose(); m.dispose(); }
+    });
+  }
   roomGroup = new THREE.Group();
   room = { w: sceneJson.width, d: sceneJson.depth };
 
@@ -190,8 +203,8 @@ function furnitureMesh(f) {
 // 조립식 fallback: 본체 + 힌지 패널 2개 → 패널이 '스르륵' 펼쳐지는 애니메이션 제공
 function buildFallbackRobot(color) {
   const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: .46, metalness: .03 });
-  const pmat = new THREE.MeshStandardMaterial({ color, roughness: .36, metalness: .02, transparent: true, opacity: .96 });
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: .46, metalness: .03, transparent: true, opacity: .95 });
+  const pmat = new THREE.MeshStandardMaterial({ color, roughness: .36, metalness: .02, transparent: true, opacity: .95 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(40, 50, 40), mat);
   body.position.y = 25;
   body.castShadow = true;
@@ -210,13 +223,15 @@ function buildFallbackRobot(color) {
     g.add(hinge);
   }
   g.userData.hinges = hinges;   // rotation.z = ∓angle
+  g.userData.mats = [mat, pmat];   // dim 적용용 (매 갱신마다 traverse 하지 않도록 직접 참조)
   return g;
 }
 
-function glbTemplate(key) {   // key = "LxR"
-  if (!glbCache.has(key)) {
-    glbCache.set(key, new Promise(res => {
-      loader.load(`/models/robot_${key}.glb`, gltf => {
+let robotTemplate = null;   // Promise<wrap|null> — 로봇 GLB는 1개, 전 로봇이 공유한다
+function robotGlbTemplate() {
+  if (!robotTemplate) {
+    robotTemplate = new Promise(res => {
+      loader.load('/models/robot_animated.glb', gltf => {
         const inner = gltf.scene;
         fixMeshGeometry(inner);
         inner.position.set(-255.922, 342.419, -87.751);   // 본체 중심 보정 (mm)
@@ -226,9 +241,9 @@ function glbTemplate(key) {   // key = "LxR"
         wrap.rotation.y = Math.PI / 2;                    // 모델 +z = 오른쪽 패널 → 방 +x
         res(wrap);
       }, undefined, () => res(null));                     // 실패 → fallback 유지
-    }));
+    });
   }
-  return glbCache.get(key);
+  return robotTemplate;
 }
 
 class RobotView {
@@ -237,14 +252,24 @@ class RobotView {
     this.rig = new THREE.Group();
     this.fallback = buildFallbackRobot(ROBOT_COLORS[name] || 0x888888);
     this.rig.add(this.fallback);
-    this.glbNode = null;
-    this.glbKey = null;      // 현재 화면에 붙은 패널 상태 키
-    this.wantKey = null;     // 가장 최근에 요청된 키 (경합 시 최신만 반영)
+    // GLB용 재질은 로봇당 1개만 만들어 모든 메쉬가 공유한다 (갱신마다 new → GPU 누수 방지)
+    this.mat = new THREE.MeshStandardMaterial({
+      color: ROBOT_COLORS[name] || 0x888888,
+      emissive: ROBOT_ACCENT_COLORS[name] || 0x7fb9c9,
+      emissiveIntensity: .045,
+      roughness: .42,
+      metalness: .02,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: .95
+    });
+    this.pivots = null;      // { left, right } — GLB 패널 피벗 노드 (로드 완료 후 세팅)
     this.cur = { x: 0, y: 0, rot: 0, pl: 0, pr: 0 };
     this.tgt = { ...this.cur };
     this.speed = 1;
-    this.dim = 1;            // inactive 흐림 계수 — 비동기 GLB 스왑 후에도 재적용
+    this.dim = 1;            // inactive 흐림 계수 — 비동기 GLB 로드 후에도 재적용
     scene3.add(this.rig);
+    if (USE_GLB) this.attachGlb();
   }
   setTarget(st, duration) {
     this.tgt = { x: st.x, y: st.y, rot: st.rot || 0,
@@ -252,46 +277,32 @@ class RobotView {
     this.speed = duration > 0 ? 1 / duration : 1e6;
     if (duration <= 0) this.cur = { ...this.tgt };
     this.dim = st.active === 'inactive' ? .55 : 1;
-    if (USE_GLB) this.swapGlb(`${this.tgt.pl}x${this.tgt.pr}`);
     this.applyDim();
   }
   applyDim() {
-    this.rig.traverse(o => {
-      if (o.material) { o.material.transparent = true; o.material.opacity = .95 * this.dim; }
-    });
+    const op = .95 * this.dim;
+    this.mat.opacity = op;
+    for (const m of this.fallback.userData.mats) m.opacity = op;
   }
-  async swapGlb(key) {
-    if (key === this.glbKey && this.glbNode) return;   // 이미 그 상태면 스왑 불필요
-    this.wantKey = key;                                // 최신 요청 기록
-    const tpl = await glbTemplate(key);
-    if (key !== this.wantKey) return;                  // 그새 더 최신 요청이 왔으면 이 결과는 폐기 (순서 꼬임 방지)
-    if (tpl === null) {                                // GLB 없음/로드 실패 → 조립식 fallback으로 표시
-      if (this.glbNode) { this.rig.remove(this.glbNode); this.glbNode = null; }
-      this.fallback.visible = true;                    // 패널 변화가 최소한 조립식으로라도 보이게
-      this.glbKey = key;
-      return;
-    }
-    if (this.glbNode) this.rig.remove(this.glbNode);
-    this.glbKey = key;
-    this.glbNode = tpl.clone(true);
-    this.glbNode.traverse(o => {
+  async attachGlb() {
+    const tpl = await robotGlbTemplate();
+    if (tpl === null) return;   // GLB 없음/로드 실패 → 조립식 fallback 유지
+    const node = tpl.clone(true);
+    node.traverse(o => {
       if (o.isMesh) {
-        if (o.geometry && !o.geometry.attributes.normal) o.geometry.computeVertexNormals();
         o.castShadow = true;
         o.receiveShadow = true;
-        o.material = new THREE.MeshStandardMaterial({
-          color: ROBOT_COLORS[this.name] || 0x888888,
-          emissive: ROBOT_ACCENT_COLORS[this.name] || 0x7fb9c9,
-          emissiveIntensity: .045,
-          roughness: .42,
-          metalness: .02,
-          side: THREE.DoubleSide
-        });
+        o.material = this.mat;   // 로봇당 재질 1개 공유 (메쉬마다 new 하지 않는다)
       }
     });
-    this.rig.add(this.glbNode);
+    // 모델 노드 명명이 방 규약과 반대다: 방 왼쪽(-z) 패널의 피벗이 right_wing_pivot_anim.
+    const pl = node.getObjectByName('right_wing_pivot_anim');
+    const pr = node.getObjectByName('left_wing_pivot_anim');
+    if (pl && pr) this.pivots = { left: pl, right: pr };
+    else console.warn('[robot] 패널 피벗 노드를 찾지 못했습니다 — 본체만 표시됩니다');
+    this.rig.add(node);
     this.fallback.visible = false;
-    this.applyDim();   // 새 재질은 불투명 기본값 — 스왑 완료 시 dim 재적용 (inactive 흐림 유지)
+    this.applyDim();   // 로드 완료 시 dim 재적용 (inactive 흐림 유지)
   }
   tick(dt) {
     const k = Math.min(1, dt * this.speed * 1.6);
@@ -299,13 +310,23 @@ class RobotView {
     this.cur.y += (this.tgt.y - this.cur.y) * k;
     let dr = ((this.tgt.rot - this.cur.rot + 540) % 360) - 180;   // 최단 경로
     this.cur.rot += dr * k;
-    this.cur.pl += (this.tgt.pl - this.cur.pl) * k;
-    this.cur.pr += (this.tgt.pr - this.cur.pr) * k;
+    // 패널은 이동·회전이 끝난 뒤에만 움직인다 (주행 중 패널이 먼저 펴지는 것 방지).
+    // 지수 보간은 꼬리가 길어서, 임계값에 닿으면 스냅하고 패널 단계로 넘어간다.
+    if (Math.abs(this.tgt.x - this.cur.x) < 2 &&
+        Math.abs(this.tgt.y - this.cur.y) < 2 && Math.abs(dr) < 3) {
+      this.cur.x = this.tgt.x; this.cur.y = this.tgt.y; this.cur.rot = this.tgt.rot;
+      this.cur.pl += (this.tgt.pl - this.cur.pl) * k;
+      this.cur.pr += (this.tgt.pr - this.cur.pr) * k;
+    }
     this.rig.position.set(X(this.cur.x), 0, Z(this.cur.y));
     this.rig.rotation.y = THREE.MathUtils.degToRad(this.cur.rot);
     const h = this.fallback.userData.hinges;
     h.left.rotation.z = -THREE.MathUtils.degToRad(this.cur.pl);
     h.right.rotation.z = THREE.MathUtils.degToRad(this.cur.pr);
+    if (this.pivots) {   // GLB 패널: bake된 애니메이션과 같은 축·부호로 피벗을 직접 회전
+      this.pivots.left.rotation.x = THREE.MathUtils.degToRad(this.cur.pl);
+      this.pivots.right.rotation.x = -THREE.MathUtils.degToRad(this.cur.pr);
+    }
   }
 }
 
@@ -313,9 +334,7 @@ function applyStates(states, duration) {
   for (const st of states || []) {
     if (!robots.has(st.robot)) robots.set(st.robot, new RobotView(st.robot));
     robots.get(st.robot).setTarget(st, duration);
-    lastStates.set(st.robot, st);   // 수동 패널 하이라이트용 최신 상태
   }
-  refreshManualUI();
 }
 
 // ---------- 렌더 루프 ----------
@@ -324,11 +343,6 @@ function animate(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   for (const r of robots.values()) r.tick(dt);
-  if (baseline && robots.has(selRobot)) {          // 선택된 로봇 발밑 링
-    const rig = robots.get(selRobot).rig;
-    selRing.visible = true;
-    selRing.position.set(rig.position.x, 0.6, rig.position.z);
-  } else selRing.visible = false;
   controls.update();
   renderer.render(scene3, camera);
   requestAnimationFrame(animate);
@@ -395,56 +409,10 @@ function sendInput() {
 $('sendBtn').onclick = sendInput;
 $('msgInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendInput(); });
 
-// ---------- baseline 수동 모드 (--baseline) ----------
-// scene_change 메시지의 baseline 플래그로 켜진다. 버튼 1회 = manual_command 1건.
-// (조작 수 카운트는 파이썬 baseline_loop 몫). 좌표·회전의 진실은 파이썬이므로
-// 브라우저는 델타·목표값만 보낸다.
-let baseline = false;
-let selRobot = 'BOT 1';
-const lastStates = new Map();   // name -> 마지막 state (패널 버튼 하이라이트용)
-
-const selRing = new THREE.Mesh(
-  new THREE.RingGeometry(31, 35, 40),
-  new THREE.MeshBasicMaterial({ color: 0x2e7d32, side: THREE.DoubleSide,
-                                transparent: true, opacity: .65 }));
-selRing.rotation.x = -Math.PI / 2;
-selRing.visible = false;
-scene3.add(selRing);
-
-function sendManual(payload) {
-  if (ws && ws.readyState === 1)
-    ws.send(JSON.stringify({ type: 'manual_command', ...payload }));
-}
-function refreshManualUI() {
-  if (!baseline) return;
-  document.querySelectorAll('.rBtn').forEach(b =>
-    b.classList.toggle('sel', b.dataset.robot === selRobot));
-  const st = lastStates.get(selRobot);
-  if (!st) return;
-  document.querySelectorAll('.pBtn').forEach(b => {
-    const cur = b.dataset.side === 'left' ? (st.panel_left || 0) : (st.panel_right || 0);
-    b.classList.toggle('sel', Number(b.dataset.angle) === cur);
-  });
-}
-document.querySelectorAll('.rBtn').forEach(b =>
-  b.onclick = () => { selRobot = b.dataset.robot; refreshManualUI(); });
-document.querySelectorAll('.mvBtn').forEach(b =>
-  b.onclick = () => sendManual({ action: 'move_delta', robot: selRobot,
-                                 dx: +b.dataset.dx, dy: +b.dataset.dy, drot: 0 }));
-document.querySelectorAll('.rtBtn').forEach(b =>
-  b.onclick = () => sendManual({ action: 'move_delta', robot: selRobot,
-                                 dx: 0, dy: 0, drot: +b.dataset.drot }));
-document.querySelectorAll('.pBtn').forEach(b =>
-  b.onclick = () => sendManual({ action: 'panel', robot: selRobot,
-                                 side: b.dataset.side, angle: +b.dataset.angle }));
-$('storeBtn').onclick = () => sendManual({ action: 'store', robot: selRobot });
-$('doneBtn').onclick = () => sendManual({ action: 'commit' });
-$('roomSel').onchange = e => sendManual({ action: 'scene', space: e.target.value });
-
 // ---------- push-to-talk 음성 입력 ----------
 let mediaRecorder = null, chunks = [], recording = false;
 async function startRec() {
-  if (recording || baseline) return;   // baseline은 STT 미로드 — 녹음 비활성
+  if (recording) return;
   try {
     if (!mediaRecorder) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -522,10 +490,6 @@ function connect() {
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === 'scene_change') {
-      if (m.baseline && !baseline) {   // 수동 모드 켜기 (패널 표시 + 채팅 입력 숨김)
-        baseline = true;
-        document.body.classList.add('baseline');
-      }
       if (m.scene) {
         buildRoom(m.scene);
         // 방 라벨은 실제로 방이 바뀔 때만 (재연결 스냅샷마다 중복 추가 방지)
@@ -533,7 +497,6 @@ function connect() {
           addBubble('system', '― ' + (m.scene.space || '방') + ' ―');
           lastSpace = m.scene.space;
         }
-        if (m.scene.space) $('roomSel').value = m.scene.space;   // 드롭다운 동기화
       }
       applyStates(m.states, 0);
     } else if (m.type === 'state_update') {

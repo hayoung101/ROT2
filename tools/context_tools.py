@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 """컨텍스트 tool 5개."""
-from tools import STATE, push_state
-
-
-def _scene():
-    return STATE["scene"]
+from tools import STATE, push_state, scene as _scene
 
 
 def robot_states():

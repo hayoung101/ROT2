@@ -3,12 +3,8 @@
 import json
 import os
 
-from tools import STATE, metric, push_state
+from tools import STATE, metric, push_state, scene as _scene
 from services import collision, placement
-
-
-def _scene():
-    return STATE["scene"]
 
 
 def _with_issues(st):

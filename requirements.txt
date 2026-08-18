@@ -1,6 +1,5 @@
-# 로봇 가구 LLM Agent — 의존성
+﻿# 로봇 가구 LLM Agent — 의존성
 openai
-groq
 python-dotenv
 fastapi             # 뷰어 서버
 uvicorn[standard]   # WebSocket 지원 포함

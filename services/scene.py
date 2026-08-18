@@ -37,10 +37,10 @@ class SceneState:
             self.scene = json.load(f)
         self.space = space
         if reset_robots or not self.robots:
-            self.robots = {name: self._dock_state(name) for name in config.ROBOT_NAMES}
+            self.robots = {name: self.dock_state(name) for name in config.ROBOT_NAMES}
         return self.scene
 
-    def _dock_state(self, name):
+    def dock_state(self, name):
         idx = list(config.ROBOT_NAMES).index(name)
         docks = (self.scene or {}).get("dock", [])
         if idx < len(docks):
@@ -90,7 +90,7 @@ class SceneState:
 
 #초기화 처리
     def store(self, name):
-        self.robots[name] = self._dock_state(name)
+        self.robots[name] = self.dock_state(name)
         return dict(self.robots[name])
 
     # ---------- history ----------
@@ -123,6 +123,22 @@ class SceneState:
         self.robots = copy.deepcopy(entry["state"])
         return entry
 
+    def snapshot(self):
+        """되돌릴 지점 (space + robots). history·turn·events는 건드리지 않는다 —
+        events는 append-only이고(§17.6 D2), 커밋은 승인된 것만 남는다."""
+        return {"space": self.space, "robots": copy.deepcopy(self.robots)}
+
+    def restore(self, snap):
+        """snapshot 시점으로 복원. 방이 바뀌었으면 True를 반환해 호출부가 push_scene 하게.
+
+        revert_to(turn)와 다르다: 저건 승인·커밋된 과거 턴으로 돌아가는 사용자 기능이고,
+        이건 승인 없이 끝난 턴의 실행을 물리는 내부 정정이라 history에 흔적을 남기지 않는다."""
+        changed = snap["space"] != self.space
+        if changed:
+            self.load_scene(snap["space"], reset_robots=False)
+        self.robots = copy.deepcopy(snap["robots"])
+        return changed
+
 #n턴 전 history조회
     def recent(self, n):
         return copy.deepcopy(self.history[-n:])
@@ -131,10 +147,21 @@ class SceneState:
 
     def save(self):
         os.makedirs(os.path.dirname(self.session_path) or ".", exist_ok=True)
+        # events는 append-only 로그의 형제 필드 — SceneState는 소유하지 않고 직렬화 시점에
+        # 읽어 얹기만 한다 (revert는 events를 건드리지 않는다, §17.6 D2).
+        from services import eventlog
         data = {"space": self.space, "turn": self.turn,
-                "robots": self.robots, "history": self.history}
-        with open(self.session_path, "w", encoding="utf-8") as f:
+                "robots": self.robots, "history": self.history,
+                "events": eventlog.events()}
+        # 원자적 쓰기 — 참가자 데이터는 재수집이 불가능하다. 임시 파일에 다 쓰고 교체하면
+        # 쓰기 도중 종료돼도 직전 성공본이 온전히 남는다 (os.replace는 Windows에서도 원자적).
+        # 커밋 없는 턴도 매번 save()되므로(§17.6 T10 신호) 노출 빈도가 커 원자성이 필요하다.
+        tmp = self.session_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.session_path)
 
     def resume(self):
         """재시작 시 logs/session.json에서 복원. 성공하면 True."""

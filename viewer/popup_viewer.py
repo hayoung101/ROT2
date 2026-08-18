@@ -3,7 +3,7 @@
 
 파이썬(두뇌)이 push하고 브라우저(three.js)는 받은 대로 그린다 (§9).
 - 메시지 파→브: scene_change / state_update / message / approval_request / clarify_request
-- 메시지 브→파: user_feedback / clarify_answer / user_utterance
+- 메시지 브→파: user_feedback / clarify_answer / manual_command(--baseline 수동 모드)
 - 재접속 시 즉시 현재 scene + state 스냅샷 push (duration 0) → F5 복구
 """
 import asyncio
@@ -26,12 +26,14 @@ MODELS_DIR = os.path.join(os.path.dirname(_HERE), "models")
 
 
 class PopupViewer:
-    def __init__(self, host="127.0.0.1", port=8765):
+    def __init__(self, host="127.0.0.1", port=8765, baseline=False):
         self.host, self.port = host, port
+        self.baseline = baseline          # True면 브라우저가 수동 조작 패널을 표시
         self.snapshot = {"scene": None, "states": []}
         self.feedback_q = queue.Queue()   # HITL-2 승인/피드백
         self.clarify_q = queue.Queue()    # 되묻기 답변
         self.utterance_q = queue.Queue()  # 채팅창에서 입력된 발화
+        self.manual_q = queue.Queue()     # baseline 수동 조작 명령
         self.clients = set()
         self.stt_handler = None           # (bytes, mime) -> text. main이 주입
         self.loop = None
@@ -68,7 +70,8 @@ class PopupViewer:
             self.clients.add(websocket)
             # 접속 즉시 현재 스냅샷 (duration 0 → 애니메이션 없이 그리기)
             await websocket.send_text(json.dumps(
-                {"type": "scene_change", "duration": 0, **self.snapshot},
+                {"type": "scene_change", "duration": 0,
+                 "baseline": self.baseline, **self.snapshot},
                 ensure_ascii=False, default=str))
             if self.pending:   # 승인/되묻기 대기 중 재접속(F5) → 요청을 다시 그린다
                 await websocket.send_text(json.dumps(
@@ -80,6 +83,8 @@ class PopupViewer:
             except WebSocketDisconnect:
                 pass
             finally:
+                # 끊긴 소켓을 빼야 clients가 '살아 있는 브라우저'의 진실이 된다 —
+                # 안 빼면 _wait이 영원히 기다린다(HITL 영구 블로킹).
                 self.clients.discard(websocket)
 
         return app
@@ -94,6 +99,8 @@ class PopupViewer:
             # input: voice(push-to-talk 전사) | typed — 실험 metrics의 입력 구분
             self.utterance_q.put({"text": data.get("text", ""),
                                   "input": data.get("input", "typed")})
+        elif t == "manual_command":
+            self.manual_q.put(data)     # baseline 수동 모드 → main.baseline_loop
 
     # ---------- 서버 구동 ----------
 
@@ -136,7 +143,8 @@ class PopupViewer:
     def push_scene(self, scene, states):
         self.snapshot = {"scene": scene, "states": states}
         self._broadcast({"type": "scene_change", "scene": scene,
-                         "states": states, "duration": 0})
+                         "states": states, "duration": 0,
+                         "baseline": self.baseline})
 
     def push_message(self, text):
         self._broadcast({"type": "message", "text": text})
@@ -147,25 +155,44 @@ class PopupViewer:
 
     # ---------- HITL (블로킹 대기) ----------
 
+    def _wait(self, q, poll=0.2):
+        """큐를 기다리되 브라우저가 모두 끊기면 포기한다 (영구 블로킹 방지).
+
+        q.get()을 그냥 쓰면 참가자가 창을 닫은 순간 파이썬이 영원히 멈춘다 — 세션이
+        통째로 날아가므로 실험에서 가장 비싼 실패다. pending이 남아 있으므로 재접속(F5)
+        하면 요청이 다시 그려지고, 그 사이 클라이언트가 0이면 None으로 빠져나온다.
+        반환 None = 중단(aborted)."""
+        while True:
+            if not self.clients:
+                return None
+            try:
+                return q.get(timeout=poll)
+            except queue.Empty:
+                continue
+
     def request_approval(self, message):
+        """HITL-1/HITL-2 승인 요청 (블로킹). 브라우저가 없으면 aborted로 즉시 반환."""
         with self.feedback_q.mutex:
             self.feedback_q.queue.clear()
         self._req_seq += 1
         self.pending = {"type": "approval_request", "message": message,
                         "req_id": self._req_seq}
         self._broadcast(self.pending)
-        data = self.feedback_q.get()   # 사용자가 버튼 누를 때까지 대기
+        data = self._wait(self.feedback_q)   # 사용자가 버튼 누를 때까지 대기
         self.pending = None
+        if data is None:                     # 대기 중 브라우저 끊김 → 호출부가 롤백한다
+            return {"approved": False, "feedback": "", "aborted": True}
         return {"approved": bool(data.get("approved")),
-                "feedback": data.get("feedback", "")}
+                "feedback": data.get("feedback", ""), "aborted": False}
 
     def ask(self, question, candidates=None):
+        """되묻기 (블로킹). 브라우저가 없으면 빈 문자열 — main이 무응답/취소로 읽는다."""
         with self.clarify_q.mutex:
             self.clarify_q.queue.clear()
         self._req_seq += 1
         self.pending = {"type": "clarify_request", "question": question,
                         "candidates": candidates or [], "req_id": self._req_seq}
         self._broadcast(self.pending)
-        answer = self.clarify_q.get().get("answer", "")
+        data = self._wait(self.clarify_q)
         self.pending = None
-        return answer
+        return "" if data is None else data.get("answer", "")

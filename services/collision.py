@@ -152,20 +152,50 @@ def robot_hits_furniture(state, furniture, slack=DEFAULT_SLACK):
     return any(rects_collide(r, fr, slack) for r in footprint_rects(state))
 
 
-def panels_touching(a, side_a, b, side_b, tol=3.0, min_align=30.0):
-    """두 로봇의 지정 패널 끝이 맞닿아 있는가 (연결 기하 검증용).
-    거리 조건(끝이 ±tol 이내)과 정렬 조건(패널 폭 방향 겹침 ≥ min_align)을
-    모두 만족해야 한다 — 모서리만 스치는 배치는 연결이 아니다."""
-    ra, rb = panel_rect(a, side_a), panel_rect(b, side_b)
-    if ra is None or rb is None:
-        return False
+def _touching(ra, rb, tol=3.0, min_align=30.0):
+    """두 접촉면 OBB가 맞닿아 있는가: 거리(±tol 이내) + 정렬(폭 방향 겹침 ≥ min_align).
+    정렬 조건이 있어야 모서리만 스치는 배치를 연결로 세지 않는다."""
     depth, _ = obb_penetration(ra, rb)
     if not (-tol <= depth <= tol):   # 간격도 침투도 tol 이내
         return False
-    axw = _axes(ra[4])[1]            # 패널 폭 방향 (로컬 y)
+    axw = _axes(ra[4])[1]            # 접촉면 폭 방향 (로컬 y)
     lo1, hi1 = _project(rect_corners(*ra), axw)
     lo2, hi2 = _project(rect_corners(*rb), axw)
     return min(hi1, hi2) - max(lo1, lo2) >= min_align
+
+
+def _panel_pair_touching(a, side_a, b, side_b, tol=3.0, min_align=30.0):
+    """지정한 두 '패널'이 맞닿아 있는가 — 본체 폴백 없음. validate_layout의 연결 자동 감지 전용.
+
+    여기서는 일반화하면 안 된다: 본체가 닿았다는 이유로 (side_a, side_b) 쌍을 '연결됨'으로
+    표시하면 그 패널 쌍이 충돌 검사에서 통째로 제외되어, 실제로 깊이 겹친 패널을 놓친다.
+    자동 감지가 답해야 할 질문은 '이 패널 쌍이 맞닿았나'이고, 선언된 연결의 검증
+    (connection_touching)이 답할 질문은 '연결 지점에서 두 로봇이 인접한가'다."""
+    ra, rb = panel_rect(a, side_a), panel_rect(b, side_b)
+    if ra is None or rb is None:
+        return False
+    return _touching(ra, rb, tol, min_align)
+
+
+def _connect_rect(state, side):
+    """연결 지점의 접촉면 rect — 패널이 돌출하면 그 패널, 없으면(0°·180°) 본체."""
+    r = panel_rect(state, side)
+    if r is not None:
+        return r
+    return (state["x"], state["y"], BODY, BODY, state.get("rot", 0))
+
+
+def connection_touching(a, side_a, b, side_b, tol=3.0, min_align=30.0):
+    """선언된 연결 지점에서 두 로봇 footprint가 실제로 인접한가 (연결 기하 검증용).
+
+    패널 끝 맞닿음이든 본체 맞닿음이든 성립한다 — 맞댈 쪽이 0°(접힘)·180°(수직)라 바닥
+    돌출이 없으면 두 '본체'가 맞닿아 이어지며, 그것도 물리적으로 정당한 연결이다(상자 둘을
+    이어 긴 상판을 만드는 실제 가구 구성 — large_worktable의 140 = 30+40+40+30).
+    구 panels_touching은 panel_rect가 None이면 무조건 False라 그 구성을 '연결 불가'로
+    보고했는데, 그건 물리적 사실이 아니라 검사의 한계였다(find_connect는 dist =
+    BODY + pa + pm = 40으로 본체를 gap 0에 붙여 놓고 있었다).
+    정렬 조건(min_align)은 유지한다 — 모서리만 스치는 것은 연결이 아니다."""
+    return _touching(_connect_rect(a, side_a), _connect_rect(b, side_b), tol, min_align)
 
 
 # ---------- 경계 ----------
@@ -259,7 +289,7 @@ def validate_layout(robots, scene, slack=DEFAULT_SLACK):
             # 맞닿음 조건(±tol·정렬)을 만족하는 패널 쌍은 '연결'로 보고 충돌에서 제외 (자동 감지).
             # slack(2cm) < tol(3cm) 구간에서 연결이 robot_overlap으로 오판되는 것을 막는다.
             connected = {(sa, sb) for sa in ("left", "right") for sb in ("left", "right")
-                         if panels_touching(a, sa, b, sb)}
+                         if _panel_pair_touching(a, sa, b, sb)}
             pen = None
             for na, ra in _labeled_rects(a):
                 for nb, rb in _labeled_rects(b):

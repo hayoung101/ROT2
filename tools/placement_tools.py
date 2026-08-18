@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""배치 tool 6개 — LLM에 보이는 껍데기. 내용은 services 호출."""
-import json
-import os
+"""배치 실행 함수 — main._run_form_layer가 Phase B 결과대로 직접 호출한다 (LLM tool 아님).
 
+move_robot/transform_robot/store_robot만 남는다. 자리 후보 생성·검증은 services/layout·
+placement가, 승인은 viewer_tools.ask_user가 맡는다 (구 find_placement/check_feasibility/
+furniture_mapping tool 껍데기는 형태층 tool 루프 폐기와 함께 제거, §6.9)."""
 from tools import STATE, metric, push_state, scene as _scene
 from services import collision, placement
 
@@ -55,60 +56,3 @@ def store_robot(robot):
     push_state()
     return st
 
-
-def check_feasibility(robots, connections=None):
-    """구성안(부분 상태 목록)을 현재 상태에 덮어쓴 전체 상태로 물리+연결 검증."""
-    sc = _scene()
-    merged = {s["robot"]: s for s in sc.states()}
-    for p in robots or []:
-        base = dict(merged.get(p.get("robot"), {}))
-        base.update({k: v for k, v in p.items() if v is not None})
-        merged[p["robot"]] = base
-    res = placement.feasibility(list(merged.values()), sc.environment(), connections)
-    if not res.get("feasible", True):
-        metric("feasibility_failures")   # 실험 metrics: 사전 검증 실패 횟수
-    return res
-
-
-def find_placement(footprint_radius=None, near=None, avoid=None,
-                   footprint_w=None, footprint_d=None, moving_robot=None,
-                   connect=None):
-    sc = _scene()
-    if connect:   # 두 대 조합의 정밀 연결 좌표
-        cands = placement.find_connect(
-            sc.environment(), sc.states(), near,
-            mode=connect.get("mode", "face"), side=connect.get("side", "both"),
-            anchor_panel=connect.get("anchor_panel"),
-            moving_panel=connect.get("moving_panel"), moving_robot=moving_robot)
-        if not cands:
-            return {"candidates": [], "note":
-                    "연결 후보 없음 — near에 앵커 로봇 이름을 정확히 줬는지, 그 자리가 벽·가구에 "
-                    "막히지 않았는지 확인하라 (앵커를 먼저 옮긴 뒤 재시도). 좌표를 직접 계산하지 마라."}
-        return {"candidates": cands, "note":
-                "x·y·rot을 그대로 move_robot에 쓰라. face면 앵커의 해당 쪽 패널을 anchor_panel로, "
-                "옮긴 로봇의 moving_side 패널을 moving_panel로 열어야 연결이 성립한다 "
-                "(둘 다 transform_robot으로) — 거리·각도를 직접 계산하지 마라."}
-    fixed = [s for s in sc.states() if s["robot"] != moving_robot]
-    out = placement.find_placement(sc.environment(), fixed, footprint_radius,
-                                   near, avoid or (), footprint_w=footprint_w,
-                                   footprint_d=footprint_d)
-    if not out:
-        return {"candidates": [], "note":
-                "유효 후보 없음 — near id가 정확한지 get_environment로 확인하고, footprint를 "
-                "줄이거나 조건을 바꿔 재시도하라. 좌표를 직접 지어내지 마라."}
-    return out
-
-
-def furniture_mapping(activity):
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "data", "furniture_motifs.json")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    match = data.get("activities", {}).get(activity)
-    if match:
-        motifs = {n: data["motifs"][n] for n in match.get("suggest", []) if n in data["motifs"]}
-        return {"note": "reference일 뿐 강제가 아니다. capacity(권장 인원)에 맞는 최소 구성을 고르고, 필요하면 자유롭게 새 형태를 만들어라.",
-                "activity": activity, "guide": match, "motifs": motifs,
-                "modifiers": data.get("modifiers")}
-    return {"note": "이 활동의 참고표는 없다 — 물리 스펙 안에서 자유롭게 구성하라.",
-            "available_activities": list(data.get("activities", {}).keys())}

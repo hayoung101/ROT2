@@ -30,11 +30,20 @@ def new_metrics():
     return {"intent_type": None, "outcome": None,
             "clarify_rounds": 0, "clarify_limit_hit": False,
             "hitl1_attempts": 0, "hitl1_rejects": 0, "hitl1_feedback_depth": 0,
-            "hitl2_attempts": 0, "hitl2_rejects": 0,
+            "hitl2_attempts": 0, "hitl2_rejects": 0, "hitl2_feedback_depth": 0,
             "func_excluded": 0, "func_all_infeasible": False,
             "tool_calls": {}, "tool_calls_total": 0,
             "feasibility_failures": 0, "auto_validate_issues": 0,
-            "llm_calls": 0}
+            # 형태층 Phase A/B (§6.7·6.6): 재호출 예산·공집합·거부·강행 착지·message 재생성
+            "form_recalls": 0, "empty_set": 0, "phase_b_rejects": 0,
+            "forced_landing": False,
+            # message 재생성은 필터별로 나눠 센다 — term(수치·내부 용어)은 정상 동작이고
+            # leak(내부 사정)은 예측 기반 필터라 오탐률 자체가 관측 대상이다. 합계는 나중에
+            # 더하면 되지만 합쳐진 숫자는 나중에 못 나눈다 (agent.ask_place 참조).
+            "place_regen_term": 0, "place_regen_leak": 0,
+            "place_regen_term_failed": 0, "place_regen_leak_failed": 0,
+            "llm_calls": 0,
+            "persistence_error": False}   # session.json 저장 실패 (턴은 계속 진행)
 
 
 def metric(key, n=1):
@@ -51,7 +60,8 @@ def metric_set(key, value):
 
 
 def metric_tool(name):
-    """registry.dispatch가 tool 호출마다 부른다."""
+    """이름별 tool 호출 카운터. 형태층 tool 루프 폐기(§6.9)로 현재 호출부는 없다 —
+    §16.1 UI 조작 통합처럼 이름 있는 실행이 되살아나면 그 훅으로 남겨 둔다."""
     m = STATE.get("metrics")
     if isinstance(m, dict):
         m["tool_calls"][name] = m["tool_calls"].get(name, 0) + 1

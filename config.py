@@ -4,13 +4,13 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 # 모델
-GROQ_MODEL = "whisper-large-v3-turbo"   # STT
-GROQ_LANGUAGE = "ko"
 OPENAI_MODEL = "gpt-5.5"                # 의도분석 + agent
+# Phase B(자리 선택)는 '후보 중 인덱스 고르기'라 추론 부담이 낮아 더 빠른 모델을 쓸 수 있다.
+# 기본값은 동일 모델(동작 무변경) — 실제 빠른 id는 llm_call 계측(§B-1)을 보고 env로 주입한다.
+MODEL_PLACE = os.environ.get("OPENAI_MODEL_PLACE", OPENAI_MODEL)
 
 # 로봇 물리 상수 (cm) — BoT² 확정 스펙
 BODY_W_CM = 40
@@ -25,7 +25,7 @@ MAX_COMBINE = 2          # 조합 가능한 최대 로봇 수
 ROBOT_NAMES = ("BOT 1", "BOT 2")
 
 # 미사용(inactive) 로봇의 홈 도크 — 우선순위: scene JSON의 "dock" 필드가 있으면 그쪽이
-# 우선이고, home_for()는 dock이 없는 방을 위한 fallback이다 (scene.py._dock_state 참고).
+# 우선이고, home_for()는 dock이 없는 방을 위한 fallback이다 (scene.py.dock_state 참고).
 # fallback 계산: 원점 구석(0,0)의 두 벽에 본체를 붙이고, 같은 벽(y=0)을 따라 나란히 정박.
 # 방 크기와 무관하게 성립: x = 반폭 + i×(본체폭 + 간격), y = 반폭.
 DOCK_GAP_CM = 20   # 도크 간 여유

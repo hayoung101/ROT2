@@ -32,8 +32,7 @@ def new_metrics():
             "hitl1_attempts": 0, "hitl1_rejects": 0, "hitl1_feedback_depth": 0,
             "hitl2_attempts": 0, "hitl2_rejects": 0, "hitl2_feedback_depth": 0,
             "func_excluded": 0, "func_all_infeasible": False,
-            "tool_calls": {}, "tool_calls_total": 0,
-            "feasibility_failures": 0, "auto_validate_issues": 0,
+            "auto_validate_issues": 0,
             # 형태층 Phase A/B (§6.7·6.6): 재호출 예산·공집합·거부·강행 착지·message 재생성
             "form_recalls": 0, "empty_set": 0, "phase_b_rejects": 0,
             "forced_landing": False,

@@ -70,8 +70,7 @@ def _hitl1_confirm(viewer, message):
             return False, ""
         return bool(res.get("approved")), res.get("feedback", "")
     ans = input("[HITL-1] 맞으면 y / 고칠 점 입력: ").strip()   # 콘솔 fallback
-    if ans.lower() in ("y", "yes", "", "ㅇ", "네", "좋아"):
-        # 오직 이 다섯가지 경우만 채팅에서 승인
+    if ans.lower() in config.APPROVE_WORDS:
         return True, ""
     return False, ans
 
@@ -197,11 +196,24 @@ def _validate_form(form, room_furniture=None):
                         "connection을 써라(mode 'side'가 나란히 붙이기다).")
             if room_ids and a not in room_ids:
                 return "relation.anchor가 방에 없는 가구다: %s" % a
+    # relation.mode와 connection은 짝이다. 둘이 어긋나면 코드가 조용히 다른 일을 한다:
+    # layout은 facing/alongside에만 밴드를 걸고 pair는 free와 동일하게 처리하므로,
+    # connection 없는 pair는 경고 없이 '따로 놓기'가 된다(실측: 두 로봇 200cm 이격).
+    modes = {r.get("robot"): (r.get("relation") or {}).get("mode") for r in robots}
+    stores = {n for n, m in modes.items() if m == "store"}
     c = form.get("connection")
+    if any(m == "pair" for m in modes.values()) and not c:
+        return ("relation.mode를 \"pair\"로 두었으면 connection도 채워야 한다 — "
+                "connection이 없으면 두 로봇이 붙지 않고 각자 빈 자리에 놓인다.")
     if c and c.get("anchor") == c.get("moving"):
         return "로봇은 자기 자신과 연결할 수 없다."
     if c and (c.get("anchor") not in names or c.get("moving") not in names):
         return "연결 대상이 robots 목록에 없다."
+    # 연결 대상이 store면 _parse_form이 그 로봇을 units에서 빼므로 _connected_combos가
+    # moving을 못 찾아 즉시 빈 목록을 낸다 — 공집합으로 재호출 예산만 태우고 실패한다.
+    if c and (stores & {c.get("anchor"), c.get("moving")}):
+        return ("정리(store)하기로 한 로봇은 연결 대상이 될 수 없다. 연결하려면 그 로봇도 "
+                "형태를 가진 단위로 두고, 정리할 거면 connection에서 빼라.")
     return None
 
 

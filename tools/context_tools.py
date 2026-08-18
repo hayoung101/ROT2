@@ -1,34 +1,10 @@
 # -*- coding: utf-8 -*-
-"""컨텍스트 tool 5개."""
-from tools import STATE, push_state, scene as _scene
+"""컨텍스트 함수 2개 — commit_layout / revert_to.
 
-
-def robot_states():
-    return _scene().states()
-
-
-def get_environment():
-    return _scene().environment()
-
-
-def get_recent_context(n):
-    """최근 n턴을 슬림하게 반환 — 메타 5필드 + 로봇당 한 줄 요약.
-    정확한 복원은 revert_to(코드)가 하므로 LLM에겐 '무슨 상황이었는지'면 충분하다."""
-    out = []
-    for h in _scene().recent(int(n)):
-        robots = []
-        for st in h["state"].values():
-            if st.get("active") == "inactive":
-                robots.append("%s: inactive dock" % st["robot"])
-            else:
-                robots.append("%s: active (%d,%d) rot%d L%d/R%d '%s'"
-                              % (st["robot"], st["x"], st["y"], st.get("rot", 0),
-                                 st["panel_left"], st["panel_right"],
-                                 st.get("furniture", "")))
-        out.append({"turn": h["turn"], "space": h["space"],
-                    "intent_type": h["intent_type"], "utterance": h["utterance"],
-                    "description": h["description"], "robots": robots})
-    return out
+구 tool 3개(robot_states·get_environment·get_recent_context)는 형태층 tool 루프
+폐기와 함께 쓰임이 사라졌다 — 지금은 main의 _slim_states·_room_desc·_slim_history가
+각 층에 맞게 좁힌 뷰를 직접 만든다 (§6.2)."""
+from tools import STATE, push_scene, push_state, scene as _scene
 
 
 def commit_layout(description):
@@ -50,7 +26,6 @@ def revert_to(version):
     if entry is None:
         return {"error": "해당 turn이 history에 없음", "version": version}
     if sc.space != before_space:
-        from tools import push_scene
         push_scene()          # 방까지 바뀌면 scene_change
     else:
         push_state()

@@ -9,10 +9,6 @@
   #wrap { display: flex; height: 100%; }
   #view { flex: 2; position: relative; min-width: 0; }
   #canvas { width: 100%; height: 100%; display: block; }
-  #subtitle { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
-              max-width: 80%; background: rgba(0,0,0,.65); color: #fff;
-              padding: 8px 18px; border-radius: 20px; font-size: 15px;
-              display: none; z-index: 10; }
   #status { position: absolute; left: 12px; bottom: 10px; color: #888;
             font-size: 12px; z-index: 10; }
 
@@ -44,21 +40,6 @@
   #sendBtn { padding: 10px 16px; border: 0; border-radius: 10px;
              background: #49717d; color: #fff; cursor: pointer; font-size: 14px; }
 
-  /* ---- baseline 수동 조작 패널 (--baseline일 때만 표시) ---- */
-  #manualPanel { display: none; padding: 10px 12px; border-top: 1px solid #ded6c8;
-                 background: #f6f1e7; }
-  body.baseline #manualPanel { display: block; }
-  body.baseline #chatInput { display: none; }
-  .mRow { display: flex; align-items: center; gap: 5px; margin: 6px 0; flex-wrap: wrap; }
-  .mLabel { font-size: 12px; color: #8a8173; width: 68px; flex-shrink: 0; }
-  #manualPanel button { padding: 7px 10px; border: 1px solid #d7cebf; border-radius: 8px;
-                        background: #fffdf8; color: #2b2f33; cursor: pointer;
-                        font-size: 13px; }
-  #manualPanel button.sel { background: #49717d; color: #fff; border-color: #49717d; }
-  #manualPanel select { padding: 6px 8px; border-radius: 8px; border: 1px solid #d7cebf;
-                        background: #fffdf8; font-size: 13px; margin-left: auto; }
-  #doneBtn { background: #2e7d32 !important; color: #fff !important;
-             border-color: #2e7d32 !important; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -71,55 +52,11 @@
 <div id="wrap">
   <div id="view">
     <canvas id="canvas"></canvas>
-    <div id="subtitle"></div>
     <div id="status">연결 중...</div>
   </div>
   <div id="chat">
     <div id="chatHeader">로봇 가구 어시스턴트</div>
     <div id="chatLog"></div>
-    <div id="manualPanel">
-      <div class="mRow">
-        <span class="mLabel">로봇</span>
-        <button class="rBtn sel" data-robot="BOT 1">BOT 1</button>
-        <button class="rBtn" data-robot="BOT 2">BOT 2</button>
-        <select id="roomSel" title="방 전환">
-          <option value="living_room">living_room</option>
-          <option value="bedroom">bedroom</option>
-          <option value="kitchen">kitchen</option>
-          <option value="bathroom">bathroom</option>
-          <option value="balcony">balcony</option>
-        </select>
-      </div>
-      <div class="mRow">
-        <span class="mLabel">이동·회전</span>
-        <button class="mvBtn" data-dx="0" data-dy="20">↑</button>
-        <button class="mvBtn" data-dx="0" data-dy="-20">↓</button>
-        <button class="mvBtn" data-dx="-20" data-dy="0">←</button>
-        <button class="mvBtn" data-dx="20" data-dy="0">→</button>
-        <button class="rtBtn" data-drot="45">⟲ 45°</button>
-        <button class="rtBtn" data-drot="-45">⟳ 45°</button>
-      </div>
-      <div class="mRow">
-        <span class="mLabel">왼쪽 패널</span>
-        <button class="pBtn" data-side="left" data-angle="0">0°</button>
-        <button class="pBtn" data-side="left" data-angle="45">45°</button>
-        <button class="pBtn" data-side="left" data-angle="90">90°</button>
-        <button class="pBtn" data-side="left" data-angle="135">135°</button>
-        <button class="pBtn" data-side="left" data-angle="180">180°</button>
-      </div>
-      <div class="mRow">
-        <span class="mLabel">오른쪽 패널</span>
-        <button class="pBtn" data-side="right" data-angle="0">0°</button>
-        <button class="pBtn" data-side="right" data-angle="45">45°</button>
-        <button class="pBtn" data-side="right" data-angle="90">90°</button>
-        <button class="pBtn" data-side="right" data-angle="135">135°</button>
-        <button class="pBtn" data-side="right" data-angle="180">180°</button>
-      </div>
-      <div class="mRow">
-        <button id="storeBtn">도크로 치우기</button>
-        <button id="doneBtn">완료 (배치 확정)</button>
-      </div>
-    </div>
     <div id="chatInput">
       <input id="msgInput" placeholder="원하는 상황을 입력하세요" autocomplete="off">
       <button id="sendBtn">전송</button>

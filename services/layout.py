@@ -10,9 +10,10 @@ services/ 밖은 import하지 않는다 — LLM·프롬프트·tool 없이 pytes
   대해 collision.validate_layout 위반 0이 '희망'이 아니라 '구성상' 보장된다
   (v4.5 §6.3, §1-4 수용 기준). 반환 (x,y)는 곧 본체 중심이다.
 
-  panels_to_footprint의 (w,d)는 용량 열거·밴드 겹침 추정 전용이다 — 비대칭 패널은
-  footprint 무게중심이 본체 중심에서 어긋나므로, 이 병합 치수를 충돌 검사에 쓰면
-  검증한 배치와 실행된 배치가 갈라진다. 두 경로를 절대 섞지 마라.
+  예외는 _fits_rect(2대 조합 용량 프로브)뿐이다 — 2대 강체는 단일 로봇 footprint로
+  표현되지 않아 병합 사각형을 쓴다. 그 결과는 '가능/불가' 판정에만 쓰고 후보 좌표로는
+  절대 쓰지 마라: 비대칭 패널은 무게중심이 본체 중심에서 어긋나므로 병합 치수로 검사하면
+  검증한 배치와 실행된 배치가 갈라진다.
 
 placement의 public 헬퍼(panel_relation/nearby_items/dir8/anchor_geometry/front_vec/
   find_connect/feasibility)를 재사용한다. layout→placement 단방향이라 순환은 없다
@@ -45,16 +46,6 @@ BODY = collision.BODY
 
 
 # ---------- footprint (용량 열거 전용 — 충돌 경로 아님) ----------
-
-def panels_to_footprint(panels):
-    """순서쌍 [pA, pB] → 펼친 footprint (w, d). w는 로봇 로컬 x축(rot 방향) 길이.
-
-    LLM의 footprint_radius 추정 경로를 완전히 대체한다 (v4.5 §6.3).
-    예: [90,90]→(100,40), [180,45]→(61.2,40), [0,0]→(40,40), [135,135]→(82.4,40).
-    ※ 충돌 검사에는 쓰지 마라 (모듈 docstring 참조) — scan은 footprint_rects로 검사한다."""
-    p0 = collision.panel_protrusion(panels[0])
-    p1 = collision.panel_protrusion(panels[1])
-    return p0 + BODY + p1, float(BODY)
 
 
 def _proxy(x, y, rot, panels):
@@ -547,9 +538,13 @@ def _fits_rect(scene, rw, rd):
     return False
 
 
-# 2대 조합의 최소 점유 (병합 사각형). side=나란히, face=마주보고 최소 각도(45°)로 맞댈 때.
-_PAIR_SIDE = (2 * BODY, BODY)                                           # 80 × 40
-_PAIR_FACE = (BODY + 2 * collision.panel_protrusion(45) + BODY, BODY)   # ≈122.4 × 40
+# 2대 조합의 '최소' 점유 (병합 사각형). 이 프로브는 "그 연결이 아예 불가능한가"만 답한다 —
+# 최소보다 큰 구성을 기준으로 재면 들어갈 수 있는 방을 false로 보고해 Phase A가 그 구성
+# 자체를 포기한다. face의 중심 거리는 40 + 30·sinθa + 30·sinθb이고 안쪽을 접으면(0°·180°)
+# 돌출이 0이라 본체끼리 맞닿는다 — 즉 최소는 45°가 아니라 0°이고 side와 같은 80×40이다.
+# (예전 값 122.4는 45°를 최소로 가정해, large_worktable(inner 0,0) 같은 구성을 막았다.)
+_PAIR_SIDE = (2 * BODY, BODY)   # 80 × 40 — 나란히 본체 맞대기
+_PAIR_FACE = (2 * BODY, BODY)   # 80 × 40 — 마주보고 안쪽을 접었을 때(돌출 0)
 
 
 def space_summary(scene, states=None):

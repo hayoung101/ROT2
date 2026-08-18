@@ -4,6 +4,8 @@
 move_robot/transform_robot/store_robot만 남는다. 자리 후보 생성·검증은 services/layout·
 placement가, 승인은 viewer_tools.ask_user가 맡는다 (구 find_placement/check_feasibility/
 furniture_mapping tool 껍데기는 형태층 tool 루프 폐기와 함께 제거, §6.9)."""
+import math
+
 from tools import STATE, metric, push_state, scene as _scene
 from services import collision, placement
 
@@ -28,7 +30,6 @@ def transform_robot(robot, panel_left, panel_right, furniture):
 
 
 def move_robot(robot, x, y, rot=None):
-    import math
     sc = _scene()
     before = next((s for s in sc.states() if s["robot"] == robot), None)
     st = sc.move(robot, x, y, rot)

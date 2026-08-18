@@ -24,6 +24,10 @@ MAX_COMBINE = 2          # 조합 가능한 최대 로봇 수
 # 확정: 단일 기종 2대
 ROBOT_NAMES = ("BOT 1", "BOT 2")
 
+# 콘솔 fallback에서 승인으로 간주하는 입력 (HITL-1·HITL-2 공용, 소문자 비교).
+# 두 곳에 따로 두면 한쪽만 고쳐져 게이트가 비대칭이 된다.
+APPROVE_WORDS = ("y", "yes", "", "ㅇ", "네", "좋아")
+
 # 미사용(inactive) 로봇의 홈 도크 — 우선순위: scene JSON의 "dock" 필드가 있으면 그쪽이
 # 우선이고, home_for()는 dock이 없는 방을 위한 fallback이다 (scene.py.dock_state 참고).
 # fallback 계산: 원점 구석(0,0)의 두 벽에 본체를 붙이고, 같은 벽(y=0)을 따라 나란히 정박.

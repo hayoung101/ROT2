@@ -2,8 +2,8 @@
 """FastAPI + WebSocket 뷰어 서버.
 
 파이썬(두뇌)이 push하고 브라우저(three.js)는 받은 대로 그린다 (§9).
-- 메시지 파→브: scene_change / state_update / message / approval_request / clarify_request
-- 메시지 브→파: user_feedback / clarify_answer / manual_command(--baseline 수동 모드)
+- 메시지 파→브: scene_change / state_update / chat / approval_request / clarify_request
+- 메시지 브→파: user_feedback / clarify_answer
 - 재접속 시 즉시 현재 scene + state 스냅샷 push (duration 0) → F5 복구
 """
 import asyncio
@@ -13,9 +13,9 @@ import queue
 import threading
 import webbrowser
 
+import anyio
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
@@ -26,14 +26,12 @@ MODELS_DIR = os.path.join(os.path.dirname(_HERE), "models")
 
 
 class PopupViewer:
-    def __init__(self, host="127.0.0.1", port=8765, baseline=False):
+    def __init__(self, host="127.0.0.1", port=8765):
         self.host, self.port = host, port
-        self.baseline = baseline          # True면 브라우저가 수동 조작 패널을 표시
         self.snapshot = {"scene": None, "states": []}
         self.feedback_q = queue.Queue()   # HITL-2 승인/피드백
         self.clarify_q = queue.Queue()    # 되묻기 답변
         self.utterance_q = queue.Queue()  # 채팅창에서 입력된 발화
-        self.manual_q = queue.Queue()     # baseline 수동 조작 명령
         self.clients = set()
         self.stt_handler = None           # (bytes, mime) -> text. main이 주입
         self.loop = None
@@ -60,7 +58,6 @@ class PopupViewer:
                 return JSONResponse({"error": "STT 미설정 (GROQ_API_KEY 확인)"}, status_code=503)
             data = await request.body()
             mime = request.headers.get("content-type", "audio/webm")
-            import anyio
             text = await anyio.to_thread.run_sync(self.stt_handler, data, mime)
             return JSONResponse({"text": text})
 
@@ -70,8 +67,7 @@ class PopupViewer:
             self.clients.add(websocket)
             # 접속 즉시 현재 스냅샷 (duration 0 → 애니메이션 없이 그리기)
             await websocket.send_text(json.dumps(
-                {"type": "scene_change", "duration": 0,
-                 "baseline": self.baseline, **self.snapshot},
+                {"type": "scene_change", "duration": 0, **self.snapshot},
                 ensure_ascii=False, default=str))
             if self.pending:   # 승인/되묻기 대기 중 재접속(F5) → 요청을 다시 그린다
                 await websocket.send_text(json.dumps(
@@ -99,8 +95,6 @@ class PopupViewer:
             # input: voice(push-to-talk 전사) | typed — 실험 metrics의 입력 구분
             self.utterance_q.put({"text": data.get("text", ""),
                                   "input": data.get("input", "typed")})
-        elif t == "manual_command":
-            self.manual_q.put(data)     # baseline 수동 모드 → main.baseline_loop
 
     # ---------- 서버 구동 ----------
 
@@ -143,11 +137,7 @@ class PopupViewer:
     def push_scene(self, scene, states):
         self.snapshot = {"scene": scene, "states": states}
         self._broadcast({"type": "scene_change", "scene": scene,
-                         "states": states, "duration": 0,
-                         "baseline": self.baseline})
-
-    def push_message(self, text):
-        self._broadcast({"type": "message", "text": text})
+                         "states": states, "duration": 0})
 
     def chat(self, who, text):
         """채팅창에 말풍선 추가 (who: 'agent' | 'user' | 'system')."""

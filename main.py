@@ -24,7 +24,10 @@ from services.scene import SceneState
 from tools import context_tools, placement_tools, viewer_tools
 
 FORM_BAND_EXPAND = 120.0   # 공집합 시 앵커 밴드 상한을 한시적으로 넓힌다 (§6.7 폴백 1단계)
-FORM_HITL2_MAX = 2         # HITL-2 승인 거부 피드백 재구상 예산 (§6.7 LLM 예산과 별개 — 사용자 요청).
+FORM_HITL2_MAX = 2         # HITL-2 승인 거부 피드백 '재구상' 예산 (§6.7 LLM 예산과 별개 — 사용자 요청).
+                           # 최초 제시는 재구상이 아니므로 루프는 range(MAX + 1)을 돈다 —
+                           # 총 제시 3회 = 최초 1 + 피드백 반영 2. range(MAX)로 두면 피드백이
+                           # 실제로 반영되는 라운드가 1회뿐이라 이름·docstring과 어긋난다.
                            # [미정] 파일럿 보정 — B로 속도가 잡히면 3으로 올려도 된다.
 
 DEFAULT_SPACE = "living_room"
@@ -510,7 +513,7 @@ def _run_form_layer(openai_client, intent, utterance):
         eventlog.record("form_rollback")
 
     try:
-        for hitl2_round in range(FORM_HITL2_MAX):
+        for hitl2_round in range(FORM_HITL2_MAX + 1):   # 최초 제시 1 + 재구상 MAX회
             needs_hitl2, msg = _form_pipeline(openai_client, intent, sc, it, room,
                                               motifs, seed_reason)
             if not needs_hitl2:               # giveup·Phase A/B 실패 — HITL-2 없이 종료
@@ -535,7 +538,12 @@ def _run_form_layer(openai_client, intent, utterance):
     eventlog.record("hitl2_budget_exhausted")
     viewer = tools.STATE.get("viewer")
     if viewer:
-        viewer.chat("agent", "여러 번 맞춰봤는데 잘 안 되네요. 조금 다르게 말씀해 주시겠어요?")
+        # 문구가 참가자 탓("다르게 말씀해 주시겠어요")으로 들리면 안 된다. 그리고 이 지점은
+        # 참가자가 이미 두 번 거부하며 판단 근거를 쌓아 둔 자리다 — '어떤 점이 아쉬웠는지'를
+        # 물어 그 기준을 발화로 끌어내는 것이 §15가 찾는 데이터다 (시스템이 대신 맞히면 그
+        # 발화가 사라진다). 롤백 뒤라 화면이 비어 있음도 함께 알린다.
+        viewer.chat("agent", "지금은 여기까지가 최선이었어요. 배치는 처음 상태로 되돌렸습니다. "
+                             "어떤 점이 아쉬웠는지 말씀해 주시면 그걸 중심으로 다시 만들어볼게요.")
     return "(HITL-2 피드백 예산 소진)"
 
 

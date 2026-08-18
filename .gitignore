@@ -5,3 +5,5 @@ __pycache__/
 logs/
 *.png
 .write_test
+project_prompt_v4.4.md
+HANDOFF.md

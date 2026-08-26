@@ -129,7 +129,6 @@ INTENT_SCHEMA = {
         "furniture": {
             "type": "array",
             "description": "필요한 가구 초안 (로봇 대수·형태 고려 없이 나열. 확정·구현 가능성 판정은 기능층이 한다)",
-            #------대수는 고려하지 않는 게 맞을까?---------
             "items": {
                 "type": "object",
                 "properties": {
@@ -362,4 +361,3 @@ PLACE_SCHEMA = {
     "required": ["checks", "reason", "choice", "reject_reason", "message"],
     "additionalProperties": False,
 }
-    

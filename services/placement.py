@@ -2,13 +2,13 @@
 """배치 공용 헬퍼 + 연결 좌표 + 종합 검증 (순수 계산, 상태 없음).
 
 형태층 후보 생성은 services/layout.py가 한다 (격자 스캔 + 앵커 밴드). 이 모듈은 그
-후보 생성과 move 후 재계산(panel_orientation)이 공유하는 public 헬퍼
+후보 생성이 쓰는 public 헬퍼
 (front_vec/anchor_geometry/dir8/nearby_items/panel_relation)와, 두 대 조합의 정밀
 연결 좌표(find_connect), 종합 검증(feasibility)을 제공한다.
 
 - find_connect: 두 대 조합의 정밀 연결 좌표 — 코드가 삼각함수를 풀어 준다.
 - feasibility: 구성안의 물리 + 연결 기하 검증 (조화는 LLM+HITL-2 몫).
-- panel_relation / panel_orientation: 앵커 기준 패널 위치·각도별 앞면 방향.
+- panel_relation: 앵커와 가까운 쪽 패널이 right인지 left인지.
 
 가구의 '앞' 규약: rot=0일 때 앞면은 +y. front 벡터 = (0,1)을 rot만큼 회전 = (-sin rot, cos rot).
 (예: 소파 rot 180 → 앞면 -y. scene 시드와 뷰어도 이 규약을 따를 것)
@@ -17,8 +17,8 @@ import math
 
 from services import collision
 
-# 아래 헬퍼는 형태층 후보 생성(services/layout.py)과 move 후 재계산(panel_orientation)이
-# 공유하는 public 함수다. (구 find_placement 격자·앵커 링 탐색은 layout으로 대체·제거, §6.4)
+# 아래 헬퍼는 형태층 후보 생성(services/layout.py)이 쓰는 public 함수다.
+# (구 find_placement 격자·앵커 링 탐색은 layout으로 대체·제거, §6.4)
 
 def front_vec(rot):
     """가구가 바라보는 방향 (rot=0 → +y). front = (-sin, cos)."""
@@ -68,58 +68,14 @@ def nearby_items(x, y, hw, hd, scene, robot_states, max_items=4):
 
 
 def panel_relation(x, y, rot, target):
-    """앵커 기준 패널 위치와 각도별 앞면 방향을 기하 사실로 반환한다.
+    """앵커(기준)와 가까운 쪽에 달린 패널이 어느 쪽(right/left)인가 — 기하 사실 하나.
 
-    panel_on_anchor_side는 단지 앵커와 가까운 쪽에 달린 패널이다. 패널의
-    '앞면' 방향은 힌지 각도에 따라 달라지므로 별도로 제공한다: 45°는
-    바깥쪽, 90°는 위쪽, 135°/180°는 본체 쪽을 향한다.
-    """
+    '앞면이 기준을 향하는가'는 여기서 답하지 않는다. 그건 각도별 가정표가 아니라
+    그 후보의 확정 각도에서 나오는 사실이어야 하고, layout.front_faces_ref가 답한다.
+    (가정표는 Phase B에 3단계 교차참조를 시켜 오독이 2회 재현됐다.)"""
     th = math.radians(rot)
     dot = math.cos(th) * (target[0] - x) + math.sin(th) * (target[1] - y)
-    anchor_side = "right" if dot >= 0 else "left"
-    opposite_side = "left" if anchor_side == "right" else "right"
-    return {
-        "panel_on_anchor_side": anchor_side,
-        "panel_on_opposite_side": opposite_side,
-        "front_face_toward_anchor": {
-            "45": anchor_side,
-            "90": "either",
-            "135": opposite_side,
-            "180": opposite_side,
-        },
-    }
-
-
-def panel_orientation(state, scene, others=(), max_dist=150):
-    """실행 '후' 실제 rot·위치 기준으로 주변 앵커와 패널 관계를 재계산한다.
-
-    형태층은 후보 생성 중에 layout.panel_faces(panel_relation)로 같은 값을 미리 붙이지만,
-    이 함수는 UI 수동 조작(§16.1)처럼 후보를 거치지 않은 배치에서도 move 직후의 확정
-    상태에서 신선한 패널 관계를 공급한다.
-
-    반환에는 앵커 쪽/반대쪽 패널의 물리적 위치와, 45/90/135/180°에서
-    어느 패널의 앞면이 앵커를 향하는지가 분리되어 있다. max_dist(cm) 안의
-    가구·active 로봇만 포함하며, 앵커가 가동 패널 축에서 크게 벗어나 있으면
-    (≈70° 이상, 고정 측면 방향) off_axis=True를 함께 준다."""
-    x, y, rot = state["x"], state["y"], state.get("rot", 0)
-    th = math.radians(rot)
-    anchors = [(f.get("id"), f["x"], f["y"])
-               for f in (scene or {}).get("pre_existing_furniture", [])]
-    anchors += [(s.get("robot"), s["x"], s["y"]) for s in others or ()
-                if s.get("robot") != state.get("robot")
-                and s.get("active") != "inactive"]
-    out = {}
-    for aid, ax, ay in anchors:
-        dx, dy = ax - x, ay - y
-        dist = math.hypot(dx, dy)
-        if dist > max_dist or dist < 1e-6:
-            continue
-        dot = math.cos(th) * dx + math.sin(th) * dy   # panel_right 축과의 정렬
-        o = panel_relation(x, y, rot, (ax, ay))
-        if abs(dot) / dist < 0.35:   # 앵커가 패널 축에서 벗어남 → 고정 측면이 향하는 방향
-            o["off_axis"] = True
-        out[aid] = o
-    return out
+    return {"panel_on_anchor_side": "right" if dot >= 0 else "left"}
 
 
 def find_connect(scene, all_states, anchor_name, mode="face", side="both",
@@ -182,6 +138,13 @@ def find_connect(scene, all_states, anchor_name, mode="face", side="both",
 # ---------- 종합 검증 (check_feasibility의 몸체) ----------
 
 def feasibility(robot_states, scene, connections=None):
+    """물리 검증 + (connections가 있을 때만) 연결 기하 검증.
+
+    connections는 layout._connected_combos의 face 모드에서만 채워진다 — side 모드는
+    본체를 맞대므로 패널 접촉을 요구하지 않고, layout._feasible(비연결 경로)은 애초에
+    connection 분기 앞에서 갈린다. collision.validate_layout을 직접 부르는 곳
+    (placement_tools._with_issues·main.handle_logged)과의 차이는 이 연결 검증뿐이다.
+    → 둘을 합치면 _connected_combos의 연결 검증이 사라진다. 합치지 마라."""
     #물리 검증
     issues = collision.validate_layout(robot_states, scene)
     #연결 검증

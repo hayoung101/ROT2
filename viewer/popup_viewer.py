@@ -13,9 +13,8 @@ import queue
 import threading
 import webbrowser
 
-import anyio
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
@@ -33,7 +32,6 @@ class PopupViewer:
         self.clarify_q = queue.Queue()    # 되묻기 답변
         self.utterance_q = queue.Queue()  # 채팅창에서 입력된 발화
         self.clients = set()
-        self.stt_handler = None           # (bytes, mime) -> text. main이 주입
         self.loop = None
         self.pending = None               # 미해결 HITL 요청 (재접속 시 재전송 → F5 데드락 방지)
         self._req_seq = 0                 # 요청 id — 브라우저가 중복 수신을 걸러낸다
@@ -50,16 +48,6 @@ class PopupViewer:
         @app.get("/")
         def index():
             return FileResponse(os.path.join(STATIC_DIR, "index.html"))
-
-        @app.post("/stt")
-        async def stt_endpoint(request: Request):
-            """브라우저 push-to-talk 오디오 → 전사 텍스트 (동기 핸들러는 스레드풀에서)."""
-            if self.stt_handler is None:
-                return JSONResponse({"error": "STT 미설정 (GROQ_API_KEY 확인)"}, status_code=503)
-            data = await request.body()
-            mime = request.headers.get("content-type", "audio/webm")
-            text = await anyio.to_thread.run_sync(self.stt_handler, data, mime)
-            return JSONResponse({"text": text})
 
         @app.websocket("/ws")
         async def ws_endpoint(websocket: WebSocket):

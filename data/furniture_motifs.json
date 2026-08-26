@@ -208,26 +208,6 @@
       "users": "any",
       "capacity": {"type": "people", "value": "2인 (각자 집중)"}
     },
-    "study_carrel": {
-      "robots": 2,
-      "arrangement": "face",
-      "panels": [
-        {
-          "panel_inner": 180,
-          "panel_outer": 180
-        },
-        {
-          "panel_inner": 180,
-          "panel_outer": 180
-        }
-      ],
-      "label_ko": "스터디 캐럴",
-      "use": "나란히 붙여 패널을 모두 세운 몰입형 공부 공간 (삼면 차단)",
-      "why": "네 면을 모두 수직(180°)으로 세워 삼면을 둘러싸듯 막아 바깥 시선·소리를 최대한 차단",
-      "description": "스터디 캐럴(삼면 벽 꼭대기 80cm). 안에 들어가 혼자 집중하는 몰입 공간. 넓은 상판은 없다",
-      "users": "child",
-      "capacity": {"type": "people", "value": "아이 1인"}
-    },
     "bookshelf": {
       "robots": 2,
       "arrangement": "face",
@@ -311,7 +291,6 @@
     "공부": {
       "suggest": [
         "table_with_partition",
-        "study_carrel",
         "partitioned_shared_table",
         "partition"
       ],

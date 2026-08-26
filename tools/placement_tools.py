@@ -6,8 +6,8 @@ placement가, 승인은 viewer_tools.ask_user가 맡는다 (구 find_placement/c
 furniture_mapping tool 껍데기는 형태층 tool 루프 폐기와 함께 제거, §6.9)."""
 import math
 
-from tools import STATE, metric, push_state, scene as _scene
-from services import collision, placement
+from tools import metric, push_state, scene as _scene
+from services import collision
 
 
 def _with_issues(st):
@@ -29,19 +29,15 @@ def transform_robot(robot, panel_left, panel_right, furniture):
     return _with_issues(st)
 
 
-def move_robot(robot, x, y, rot=None):
+def move_robot(robot, x, y, rot=None, panels=None):
+    """panels=(right, left)를 주면 그 형태로 clamp한다 — 이전 형태로 clamp되어
+    검증된 후보 좌표가 밀려나는 것을 막는다 (SceneState.move 참조)."""
     sc = _scene()
     before = next((s for s in sc.states() if s["robot"] == robot), None)
-    st = sc.move(robot, x, y, rot)
+    st = sc.move(robot, x, y, rot, panels=panels)
     # 애니메이션 시간 = 이동 거리 비례 (30cm/s 감각, 0.8~4초 clamp) — 순간이동 방지
     dist = math.hypot(st["x"] - before["x"], st["y"] - before["y"]) if before else 0
     push_state(duration=max(0.8, min(4.0, dist / 30.0)))
-    # 실행 후 실제 rot·위치 기준의 패널 위치·기능면 방향 — 후보의 계획값이 무효가 됐어도
-    # transform 직전에 항상 신선한 진실을 공급한다 (LLM은 제안, 코드는 보장).
-    ori = placement.panel_orientation(st, sc.environment(), sc.states())
-    if ori:
-        st = dict(st)
-        st["panel_orientation"] = ori
     return _with_issues(st)
 
 

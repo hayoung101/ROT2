@@ -2,7 +2,7 @@
 """SceneState: 현재 방 scene + robots + history + commit/revert/recent + load_scene(space).
 
 - history의 state는 항상 전체 로봇의 절대 스냅샷 (diff 아님) → 어느 turn이든 단독 복원.
-- turn은 전역 번호 (리셋 없음). commit마다 logs/session.json 저장 → 재시작 시 resume().
+- turn은 전역 번호 (리셋 없음). commit마다 logs/session.json 저장 (로그·분석용 — resume 안 함).
 - viewer를 모름 (push는 tools 계층의 몫).
 """
 import copy
@@ -79,12 +79,20 @@ class SceneState:
         self._clamp(st)   # 벽 앞에서 패널을 펼치면 안쪽으로 밀려남
         return dict(st)
 
-    def move(self, name, x, y, rot=None):
+    def move(self, name, x, y, rot=None, panels=None):
+        """panels=(right, left)를 주면 그 형태를 반영한 뒤 clamp한다.
+
+        주지 않으면 이전 턴의 패널 각도로 footprint가 계산되어, 새 형태가 더 좁을 때
+        clamp가 좌표를 벽 안쪽으로 밀어낸다 — 형태층이 검증한 자리와 실제 배치가
+        갈라진다(실측 30cm). layout 상단의 '검사한 도형 = 놓을 도형' 보장이 깨지는 지점."""
         st = self.robots[name]
         st["active"] = "active"
         st["x"], st["y"] = x, y
         if rot is not None:
             st["rot"] = rot % 360
+        if panels is not None:                       # clamp 전에 최종 형태를 반영
+            st["panel_right"] = collision.snap_panel(panels[0])
+            st["panel_left"] = collision.snap_panel(panels[1])
         self._clamp(st)
         return dict(st)
 
@@ -163,15 +171,3 @@ class SceneState:
             os.fsync(f.fileno())
         os.replace(tmp, self.session_path)
 
-    def resume(self):
-        """재시작 시 logs/session.json에서 복원. 성공하면 True."""
-        if not os.path.exists(self.session_path):
-            return False
-        with open(self.session_path, encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("space"):
-            self.load_scene(data["space"], reset_robots=True)
-        self.robots = data.get("robots", self.robots)
-        self.history = data.get("history", [])
-        self.turn = data.get("turn", 0)
-        return True

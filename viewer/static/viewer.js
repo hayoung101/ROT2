@@ -17,17 +17,6 @@ const USE_GLB = true;                       // false면 조립식 로봇만 사�
 const ROBOT_COLORS = { 'BOT 1': 0xf0ffff, 'BOT 2': 0xe6fbff };
 const ROBOT_ACCENT_COLORS = { 'BOT 1': 0x7fb9c9, 'BOT 2': 0x96d5e3 };
 const FURN_COLOR = 0xd6d0c6;
-const FURNITURE_MODEL_YAW = {
-  'sofa.glb': 0,
-  'table.glb': 0,
-  'tv.glb': 0,
-  'bed.glb': 0,
-  'desk.glb': 0,
-  'dining_table.glb': 0,
-  'kitchen_counter.glb': 0,
-  'bathroom_sink.glb': 0,
-  'toilet.glb': 0
-};
 
 // ---------- 기본 세팅 ----------
 const canvas = document.getElementById('canvas');
@@ -172,6 +161,8 @@ function buildRoom(sceneJson) {
   controls.update();
 }
 
+// 기존 가구는 박스로 그린다 — 가구 GLB는 두지 않기로 했다(models/에는 로봇 모델만).
+// 죽은 로드 분기를 남겨 두면 404를 조용히 삼켜 '왜 안 보이나'를 못 찾는다.
 function furnitureMesh(f) {
   const g = new THREE.Group();
   g.position.set(X(f.x), 0, Z(f.y));
@@ -183,21 +174,6 @@ function furnitureMesh(f) {
   box.castShadow = true;
   box.receiveShadow = true;
   g.add(box);
-  if (f.model && USE_GLB) {   // GLB가 있으면 로드해서 교체 (실패 시 박스 유지)
-    loader.load('/models/' + f.model, gltf => {
-      const obj = gltf.scene;
-      fixMeshGeometry(obj);
-      const bb = new THREE.Box3().setFromObject(obj);
-      const size = bb.getSize(new THREE.Vector3());
-      const s = Math.min(f.w / size.x, h / size.y, f.d / size.z);
-      obj.scale.setScalar(s);
-      obj.rotation.y = THREE.MathUtils.degToRad(FURNITURE_MODEL_YAW[f.model] || 0);
-      const bb2 = new THREE.Box3().setFromObject(obj);
-      const c = bb2.getCenter(new THREE.Vector3());
-      obj.position.sub(c).setY(obj.position.y - bb2.min.y);
-      g.remove(box); g.add(obj);
-    }, undefined, () => {});
-  }
   return g;
 }
 

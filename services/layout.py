@@ -16,9 +16,9 @@ services/ 밖은 import하지 않는다 — LLM·프롬프트·tool 없이 pytes
   검증한 배치와 실행된 배치가 갈라진다.
 
 placement의 public 헬퍼(panel_relation/nearby_items/dir8/anchor_geometry/front_vec/
-  find_connect/feasibility)를 재사용한다. layout→placement 단방향이라 순환은 없다
-  (이관 대신 public 승격만 — placement.panel_orientation이 panel_relation을 필요로 해서
-  이관하면 placement→layout 역방향이 생긴다).
+  find_connect/feasibility)를 재사용한다. layout→placement 단방향이라 순환은 없다.
+  (구 panel_orientation이 panel_relation을 쓰던 시절의 역방향 의존은 해소됐다 —
+  지금 panel_relation의 소비자는 layout._panel_faces 하나뿐이라 이관해도 순환이 없다. [미정])
 
 다양성 원칙 (Phase B 후보를 다루는 모든 곳에 적용 — Stage 2 포함):
   "정렬된 목록을 앞에서 k개 자른다"가 네 번 연속 다양성을 무너뜨렸다 —
@@ -36,7 +36,6 @@ from services import collision, placement
 GRID_CM = 20                 # 격자 간격 (placement.GRID_CM과 동일값 유지)
 CLEARANCE_CM = 5.0           # 앵커 밴드 하한 = 후보와 앵커 사이 최소 여유
 BAND_MAX = 70.0              # 앵커 밴드 상한. [미정] 파일럿에서 보정 — v4.5 §18-16
-AVOID_MARGIN_CM = 40.0       # avoid 대상과의 최소 이격 (placement와 동일)
 SURVEY_MIN_APART = 80        # '자리'(x,y)끼리 최소 이격 — 벽면 한 줄로 뭉치지 않게 분산
 K_POSITIONS = 6             # 이격 후 남길 자리 개수. [미정] — v4.5 §18-17
 MAX_ROTS_PER_POS = 2        # 자리당 남길 유효 rot 상한 — 방향(rot) 선택은 Phase B로 (원칙 4)
@@ -96,18 +95,9 @@ def _obstacles(scene, states, exclude=None):
     return rects
 
 
-def _avoid_rects(scene, avoid, states):
-    out = []
-    for item in avoid or ():
-        _, arect, _ = placement.anchor_geometry(scene, item, states)
-        if arect is not None:
-            out.append(arect)
-    return out
-
-
 # ---------- 격자 스캔 ----------
 
-def scan(scene, fixed_states, panels, avoid=()):
+def scan(scene, fixed_states, panels):
     """방 전체 격자를 rot 8종(대칭이면 4종) OBB로 훑어 놓일 수 있는 셀을 모은다.
 
     충돌·경계는 collision.footprint_rects(proxy)로만 검사한다 — rot을 반영하므로
@@ -116,7 +106,6 @@ def scan(scene, fixed_states, panels, avoid=()):
     선정이 끝난 최종 후보에만 붙인다 (버린 셀에 비용 들이지 않게)."""
     w, d = scene["width"], scene["depth"]
     obstacles = _obstacles(scene, fixed_states)
-    avoid_rects = _avoid_rects(scene, avoid, fixed_states)
     rots = _rot_steps(panels)
     cells = []
     for i in range(1, int(w // GRID_CM)):
@@ -128,9 +117,6 @@ def scan(scene, fixed_states, panels, avoid=()):
                     continue
                 rects = collision.footprint_rects(proxy)
                 if any(collision.rects_collide(r, ob) for r in rects for ob in obstacles):
-                    continue
-                if any(collision.rect_gap(r, ar) < AVOID_MARGIN_CM
-                       for r in rects for ar in avoid_rects):
                     continue
                 cells.append({"x": x, "y": y, "rot": rot})
     return cells
@@ -361,12 +347,13 @@ def _rot_matches(rot, anchor_rot):
     return (rot - anchor_rot) % 180 == 0
 
 
-def band_filter(cells, scene, anchor_id, states, mode, panels):
+def band_filter(cells, scene, anchor_id, states, mode, panels, band_max=None):
     """scan 셀 중 앵커 밴드(rect_gap ∈ [5,70]) 안이며 모드 구획에 맞는 것만 남긴다.
 
     앵커를 후보 '생성' 주체에서 '거르는' 필터로 강등한 부분 — 밴드가 두께를 가지므로
     다중 링이 자동으로 생긴다 (결함 1 해소). 반환은 **bare 셀**이다 — 랭킹·k 선정 뒤에
     annotate한다 (band_filter가 살아남은 셀을 다시 annotate하던 중복 비용 제거)."""
+    hi = BAND_MAX if band_max is None else band_max   # 공집합 폴백이 한시적으로 넓힌다
     center, _, arot = placement.anchor_geometry(scene, anchor_id, states)
     if center is None:
         return []
@@ -378,7 +365,7 @@ def band_filter(cells, scene, anchor_id, states, mode, panels):
         x, y, rot = cell["x"], cell["y"], cell["rot"]
         rects = collision.footprint_rects(_proxy(x, y, rot, panels))
         gap = min(collision.rect_gap(r, ar) for r in rects for ar in arects)
-        if not (CLEARANCE_CM <= gap <= BAND_MAX):
+        if not (CLEARANCE_CM <= gap <= hi):
             continue
         face = _anchor_face(arects, ax, ay, fv, x, y)
         if mode == "facing":
@@ -554,7 +541,13 @@ def space_summary(scene, states=None):
       자리를 지키는 active 로봇만 장애물로 넣는다 — inactive(도크 대기)는 new_scene에서
       놓을 대상이라 장애물로 세면 자기 용량을 깎는다.
     pair_connect_fits: 나란히(side)·마주보기(face)를 나눠 준다 — 80×40만 보면 face(≈122×40)가
-      못 들어가는데도 true가 나오던 오판(면별 치수 차)을 없앤다 (§5-2 지적)."""
+      못 들어가는데도 true가 나오던 오판(면별 치수 차)을 없앤다 (§5-2 지적).
+
+    [미정] 두 프로브의 장애물 기준이 다르다: largest_fit(_fits_panels)은 active 로봇을
+    장애물에 넣고, pair_connect_fits(_fits_rect)는 로봇을 전부 뺀다. pair는 두 대 모두를
+    놓는 질문이라 전부 빼는 것이 맞지만, span은 1대만 놓는 질문인데도 '옮길 그 로봇'까지
+    장애물로 세어 자기 용량을 깎을 수 있다. 파일럿 데이터 비교에 영향이 가므로 지금은
+    바꾸지 않는다 — 파일럿 후 span도 로봇 전부 제외로 통일할지 결정한다."""
     active = [s for s in states or [] if s.get("active") != "inactive"]
     obstacles = _obstacles(scene, active)
     span = 40
@@ -569,7 +562,7 @@ def space_summary(scene, states=None):
 
 # ---------- 배치 단위 열거 (§6.4) ----------
 
-def _unit_candidates(unit, scene, states, sibling_robots=()):
+def _unit_candidates(unit, scene, states, sibling_robots=(), band_max=None):
     """단위 하나의 최종 후보 목록 (랭킹·이격·k 적용 + annotate).
 
     장애물·앵커·주석은 fixed로 계산한다. fixed에서 빼는 대상: (1) 이 로봇 자신(옮길 것),
@@ -587,7 +580,7 @@ def _unit_candidates(unit, scene, states, sibling_robots=()):
     fixed = [s for s in states or [] if s.get("robot") not in drop]
     cells = scan(scene, fixed, panels)
     if mode in ("facing", "alongside") and anchor is not None:
-        cells = band_filter(cells, scene, anchor, fixed, mode, panels)
+        cells = band_filter(cells, scene, anchor, fixed, mode, panels, band_max=band_max)
         ranked = _rank_thin(cells, scene, fixed, panels, anchor, mode)
         return [annotate(c, scene, fixed, panels, anchor_id=anchor) for c in ranked]
     ranked = _rank_thin(cells, scene, fixed, panels, None, "free")
@@ -634,7 +627,7 @@ def _entry(unit, x, y, rot, panels, scene, annot_states, anchor_id):
             "rationale": unit.get("rationale")}
 
 
-def _connected_combos(units, connection, scene, states):
+def _connected_combos(units, connection, scene, states, band_max=None):
     """연결(2대 강체) 조합 열거 (§6.2 connection). anchor를 그 relation으로 놓고, moving을
     placement.find_connect로 anchor에 상대 배치해 하나의 강체로 다룬다.
 
@@ -664,8 +657,13 @@ def _connected_combos(units, connection, scene, states):
         sides = (side_req,) if side_req in ("left", "right") else ("left", "right")
     else:
         sides = (side_req,)          # side 모드: find_connect가 앞/뒤를 스스로 돈다
-    combos = []
-    for ac in _unit_candidates(ua, scene, others):     # 랭킹·이격된 anchor 자리
+    # 다양성 원칙(모듈 상단): 상한을 앞에서 자르면 랭킹 하위 '자리'가 통째로 사라지고,
+    # 어느 자리를 버릴지를 clearance 점수(코드)가 정하게 된다 — 원칙 4 위반이다.
+    # 그래서 자리(x,y)를 축으로 모아 두었다가 라운드로빈으로 꺼낸 뒤에 자른다.
+    # 여기서는 좌표만 모으고, 비싼 annotate(_entry)는 뽑힌 것에만 붙인다 (버린 후보에
+    # 비용 들이지 않게 — scan/annotate 분리와 같은 이유).
+    buckets, order = {}, []          # (x,y) → [(astate, mstate, mpanels), ...] / 자리 랭킹 순
+    for ac in _unit_candidates(ua, scene, others, band_max=band_max):   # 랭킹·이격된 anchor 자리
         astate = _placement_state(ua, ac)
         for sd in sides:
             kw, connections = {}, None
@@ -686,17 +684,31 @@ def _connected_combos(units, connection, scene, states):
                 if not placement.feasibility(list(merged.values()), scene,
                                              connections=connections).get("feasible", False):
                     continue
-                # 각 로봇의 주석은 '상대 로봇을 포함해' 계산한다 — 붙어 있는 짝을 장애물에서
-                # 빼면 clearance가 서로를 못 봐 실제 0cm 맞닿음을 50cm로 잘못 보고한다. 연결에서
-                # 두 로봇 사이 clearance≈0은 정확한 사실이고, nearby에도 짝이 나타나야 한다.
-                combos.append({"placements": [
-                    _entry(ua, astate["x"], astate["y"], astate["rot"], ua["panels"],
-                           scene, others + [mstate], (ua.get("relation") or {}).get("anchor")),
-                    _entry(um, mstate["x"], mstate["y"], mstate["rot"], mpanels,
-                           scene, others + [astate], a_name)]})
-                if len(combos) >= PRESENT_CAP:
-                    return combos
-    return combos
+                key = (ac["x"], ac["y"])
+                if key not in buckets:
+                    buckets[key] = []
+                    order.append(key)        # 자리 등장 순서 = _rank_thin의 랭킹 순
+                buckets[key].append((astate, mstate, mpanels))
+
+    picked = []
+    for r in range(max((len(buckets[k]) for k in order), default=0)):
+        for k in order:                      # 자리마다 하나씩 먼저 채우고 다음 바퀴로
+            if r < len(buckets[k]):
+                picked.append(buckets[k][r])
+                if len(picked) >= PRESENT_CAP:
+                    break
+        if len(picked) >= PRESENT_CAP:
+            break
+
+    # 각 로봇의 주석은 '상대 로봇을 포함해' 계산한다 — 붙어 있는 짝을 장애물에서 빼면
+    # clearance가 서로를 못 봐 실제 0cm 맞닿음을 50cm로 잘못 보고한다. 연결에서 두 로봇
+    # 사이 clearance≈0은 정확한 사실이고, nearby에도 짝이 나타나야 한다.
+    return [{"placements": [
+        _entry(ua, astate["x"], astate["y"], astate["rot"], ua["panels"],
+               scene, others + [mstate], (ua.get("relation") or {}).get("anchor")),
+        _entry(um, mstate["x"], mstate["y"], mstate["rot"], mpanels,
+               scene, others + [astate], a_name)]}
+        for astate, mstate, mpanels in picked]
 
 
 def _ordered(units):
@@ -709,23 +721,27 @@ def _ordered(units):
                   in names else 0)
 
 
-def enumerate_units(units, scene, states, connection=None):
+def enumerate_units(units, scene, states, connection=None, band_max=None):
     """Phase A 단위들을 유효 조합 목록으로 (§6.4). 모든 조합은 feasibility 통과분만.
 
     connection이 있으면 두 대를 1강체로 결합해 열거한다(_connected_combos). 없으면
     1개는 후보 나열, 2개는 두 후보 목록의 곱 중 서로 충돌 안 하는 쌍(결합 열거) — 밴드가
     겹치든(같은 앵커) 안 겹치든 feasibility가 걸러 주므로 순차/결합을 나눌 필요가 없다.
-    반환 개수는 PRESENT_CAP 상한."""
+    반환 개수는 PRESENT_CAP 상한.
+
+    band_max: 앵커 밴드 상한의 한시 확장값 (None이면 모듈 기본 BAND_MAX). 호출부가
+    인자로 넘긴다 — 전역을 갈아 끼우면 예외 시 세션 전체가 넓은 밴드로 오염된다."""
     units = _ordered(list(units or []))
     if not units:
         return []
     if connection:
-        return _connected_combos(units, connection, scene, states)
+        return _connected_combos(units, connection, scene, states, band_max=band_max)
     # 각 단위 후보는 이미 자리 이격·자리당 rot(≤PRESENT_CAP)로 줄어 있다 — 여기선 재수축하지
     # 않는다(다시 자르면 rot 다양성이 사라진다). 조합 총수만 PRESENT_CAP으로 상한.
     # sibling_robots: 함께 배치될 다른 로봇을 서로의 후보 장애물에서 뺀다 (A-2).
     siblings = {u.get("robot") for u in units}
-    unit_cands = [(u, _unit_candidates(u, scene, states, siblings)) for u in units]
+    unit_cands = [(u, _unit_candidates(u, scene, states, siblings, band_max=band_max))
+                  for u in units]
 
     if len(unit_cands) == 1:
         u, cands = unit_cands[0]

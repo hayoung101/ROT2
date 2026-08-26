@@ -58,15 +58,6 @@ def metric_set(key, value):
         m[key] = value
 
 
-def metric_tool(name):
-    """이름별 tool 호출 카운터. 형태층 tool 루프 폐기(§6.9)로 현재 호출부는 없다 —
-    §16.1 UI 조작 통합처럼 이름 있는 실행이 되살아나면 그 훅으로 남겨 둔다."""
-    m = STATE.get("metrics")
-    if isinstance(m, dict):
-        m["tool_calls"][name] = m["tool_calls"].get(name, 0) + 1
-        m["tool_calls_total"] += 1
-
-
 def push_state(duration=1.2):
     """상태 변경 직후 코드가 자동 호출 (LLM이 잊을 수 없게)."""
     v, s = STATE.get("viewer"), STATE.get("scene")

@@ -881,7 +881,7 @@ line("LL. free 폴백 → ask_place가 '완화된 조건'(관계 해제 + 앵커
 
 
 def _only_free(real):
-    def f(units, env, states, connection=None):
+    def f(units, env, states, connection=None, band_max=None):
         if connection or any((u.get("relation") or {}).get("mode") != "free" for u in units):
             return []                      # facing은 밴드 확장으로도 실패시킨다
         return real(units, env, states, connection=None)
@@ -901,9 +901,10 @@ line("LL-2. 밴드 확장 폴백 → 관계 유지 + 범위 확장 서술")
 def _fail_first(real):
     n = {"c": 0}
 
-    def f(units, env, states, connection=None):
+    def f(units, env, states, connection=None, band_max=None):
         n["c"] += 1
-        return [] if n["c"] == 1 else real(units, env, states, connection=connection)
+        return [] if n["c"] == 1 else real(units, env, states, connection=connection,
+                                           band_max=band_max)
     return f
 
 
@@ -1062,6 +1063,41 @@ _by_label = {"robots": [dict(GOOD_ROBOT,
 print("  방 가구:", [(f["id"], f["label"]) for f in _room])
 print("  label '%s' 검증 결과: %s" % (_label, main._validate_form(_by_label, _room)))
 results.append(verdict(_label is not None and main._validate_form(_by_label, _room) is None))
+
+# PC. pair 연결 조합이 anchor '자리' 다양성을 유지한다 (다양성 원칙 — 앞에서 자르지 않는다).
+#     상한을 없앴을 때 나오는 자리 집합이 진실값. 상한을 걸어도 그 집합이 그대로여야 한다
+#     (개수만 줄고 자리는 안 줄어야 한다). 임계값을 손으로 정하지 않는 게 요점이다.
+line("PC. pair 연결 조합 — 상한이 anchor 자리를 지우지 않는가")
+_sc_pc = fresh()
+_env_pc, _st_pc = _sc_pc.environment(), _sc_pc.states()
+
+
+def _pair_unit(n, p):
+    return {"robot": n, "furniture": "f", "panels": p,
+            "relation": {"mode": "pair", "anchor": None}, "rationale": "r"}
+
+
+_units_pc = [_pair_unit("BOT 1", [0, 90]), _pair_unit("BOT 2", [0, 90])]
+_con_pc = {"anchor": "BOT 1", "moving": "BOT 2", "mode": "face", "side": "both"}
+
+
+def _anchor_xy(cs):
+    return {(c["placements"][0]["x"], c["placements"][0]["y"]) for c in cs}
+
+
+_cap_pc = layout.PRESENT_CAP
+try:
+    layout.PRESENT_CAP = 999          # 상한 없이 = 자리 진실값
+    _truth_pc = _anchor_xy(layout.enumerate_units(_units_pc, _env_pc, _st_pc,
+                                                  connection=_con_pc))
+finally:
+    layout.PRESENT_CAP = _cap_pc
+_combos_pc = layout.enumerate_units(_units_pc, _env_pc, _st_pc, connection=_con_pc)
+_used_pc = _anchor_xy(_combos_pc)
+print("  상한 없을 때 자리 %d곳 / 상한(%d) 적용 후 조합 %d개·자리 %d곳"
+      % (len(_truth_pc), _cap_pc, len(_combos_pc), len(_used_pc)))
+results.append(verdict(len(_truth_pc) > 0 and _used_pc == _truth_pc
+                       and len(_combos_pc) <= _cap_pc))
 
 print("\n" + "=" * 50)
 print("결과: %d/%d PASS" % (sum(results), len(results)))

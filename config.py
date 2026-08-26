@@ -20,6 +20,8 @@ PANEL_W_CM = 40
 PANEL_LEN_CM = 30
 PANEL_ANGLES = (0, 45, 90, 135, 180)
 MAX_COMBINE = 2          # 조합 가능한 최대 로봇 수
+# ↑ BODY_H_CM·PANEL_W_CM·MAX_COMBINE은 코드가 참조하지 않는 '문서용 상수'다.
+#   ROBOT_MECHANISM 프롬프트의 서술과 값이 갈라지지 않도록 여기 단일 출처로 남긴다.
 
 # 확정: 단일 기종 2대
 ROBOT_NAMES = ("BOT 1", "BOT 2")
@@ -33,6 +35,8 @@ APPROVE_WORDS = ("y", "yes", "", "ㅇ", "네", "좋아")
 # fallback 계산: 원점 구석(0,0)의 두 벽에 본체를 붙이고, 같은 벽(y=0)을 따라 나란히 정박.
 # 방 크기와 무관하게 성립: x = 반폭 + i×(본체폭 + 간격), y = 반폭.
 DOCK_GAP_CM = 20   # 도크 간 여유
+# 주의: scenes/*.json 5개 전부에 dock이 있어 home_for()는 현재 도달하지 않는다.
+#       dock 없는 방을 추가할 때를 위한 안전망으로만 남긴다.
 
 
 def home_for(name):

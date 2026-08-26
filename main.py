@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """진입점: 조립 + 발화 루프.
 
-python main.py            # 브라우저 채팅창이 유일한 인터페이스
-                          #   - 타이핑 입력 + 🎤/스페이스바 push-to-talk 음성 입력
+python main.py            # 브라우저 채팅창이 유일한 인터페이스 (타이핑 입력)
 python main.py --noview   # 뷰어 없이 콘솔 타이핑 (개발용)
 
-수동 조작 비교군(baseline)은 별도 모듈로 분리됨 — baseline/ 폴더 (§14-1, §16).
+수동 조작 비교군(baseline)은 별도 모듈 분리가 폐기되고 뷰어 UI로 통합하기로 했다 (§16.1).
 """
 import json
 import math
@@ -47,13 +46,19 @@ def _append_metrics(rec):
         traceback.print_exc()
 
 
+_MOTIFS_CACHE = None
+
+
 def _load_motifs():
-    """기능층 입력용 가구 참고표 (reference)."""
-    try:
-        with open(os.path.join("data", "furniture_motifs.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+    """기능층 입력용 가구 참고표 (reference). 세션 중 불변이라 1회만 읽는다."""
+    global _MOTIFS_CACHE
+    if _MOTIFS_CACHE is None:
+        try:
+            with open(os.path.join("data", "furniture_motifs.json"), encoding="utf-8") as f:
+                _MOTIFS_CACHE = json.load(f)
+        except Exception:
+            _MOTIFS_CACHE = {}
+    return _MOTIFS_CACHE or None
 
 
 def _hitl1_confirm(viewer, message):
@@ -61,15 +66,19 @@ def _hitl1_confirm(viewer, message):
 
     반환: (approved: bool, feedback: str)."""
     print("[HITL-1] " + message)
-    if viewer is not None and viewer.clients:
+    if viewer is not None:
+        # 뷰어 모드인데 브라우저가 끊김 → 콘솔에 입력할 사람이 없다(발화는 브라우저에서만 온다).
+        # 여기서 input()으로 떨어지면 세션이 영구히 멈춘다.
+        if not viewer.clients:
+            eventlog.record("hitl1_aborted", message=message, reason="no_clients")
+            return False, ""
         # approval_request가 메시지+승인/수정 버튼을 한 말풍선으로 그린다 (chat 중복 금지)
         res = viewer.request_approval(message)   # 브라우저 승인/피드백 대기
         if res.get("aborted"):   # 대기 중 브라우저 끊김 → 취소로 종료 (영구 블로킹 없음)
-            from services import eventlog
             eventlog.record("hitl1_aborted", message=message)
             return False, ""
         return bool(res.get("approved")), res.get("feedback", "")
-    ans = input("[HITL-1] 맞으면 y / 고칠 점 입력: ").strip()   # 콘솔 fallback
+    ans = input("[HITL-1] 맞으면 y / 고칠 점 입력: ").strip()   # --noview 콘솔 모드 전용
     if ans.lower() in config.APPROVE_WORDS:
         return True, ""
     return False, ans
@@ -85,7 +94,9 @@ def _slim_history(scene_state, n=8):
 def _ask_clarification(viewer, question, candidates=None):
     """HITL 앞단 되묻기 — 답 문자열 반환 (빈 문자열이면 무응답/취소)."""
     print("[확인 질문] " + str(question))
-    if viewer is not None and viewer.clients:
+    if viewer is not None:
+        if not viewer.clients:
+            return ""          # 브라우저 끊김 → 무응답 (콘솔 input()은 아무도 못 친다)
         # clarify_request가 질문을 말풍선으로 그린다 (chat 중복 금지)
         return viewer.ask(question, candidates)
     if candidates:
@@ -274,15 +285,12 @@ def _enumerate_with_fallback(units, connection, env, states):
     combos = layout.enumerate_units(units, env, states, connection=connection)
     if combos:
         return combos, None
-    old = layout.BAND_MAX                     # 1단계: 앵커 밴드 확장
-    try:
-        layout.BAND_MAX = FORM_BAND_EXPAND
-        combos = layout.enumerate_units(units, env, states, connection=connection)
-    finally:
-        layout.BAND_MAX = old
+    # 1단계: 앵커 밴드 확장 — 전역 변이 대신 인자로 넘긴다 (예외·재진입에 안전)
+    combos = layout.enumerate_units(units, env, states, connection=connection,
+                                    band_max=FORM_BAND_EXPAND)
     if combos:
         eventlog.record("band_expand", to=FORM_BAND_EXPAND)
-        print("[LAYOUT] 공집합 → 밴드 확장 %g→%g" % (old, FORM_BAND_EXPAND))
+        print("[LAYOUT] 공집합 → 밴드 확장 %g→%g" % (layout.BAND_MAX, FORM_BAND_EXPAND))
         return combos, _relax_note(units, connection, "band")
     free_units = [dict(u, relation={"mode": "free", "anchor": None}) for u in units]
     combos = layout.enumerate_units(free_units, env, states, connection=None)
@@ -390,7 +398,10 @@ def _execute(scene_state, combos, place, stores, forced, units):
                     chosen=idx)
     _record_face_away(combos, place, combo, units)
     for p in combo["placements"]:
-        placement_tools.move_robot(p["robot"], p["x"], p["y"], p["rot"])   # move 먼저
+        # 놓을 형태를 move에 함께 넘긴다 — 안 넘기면 이전 턴의 패널 폭으로 clamp되어
+        # 후보 좌표가 밀려난다(실측 30cm). transform은 furniture 라벨 세팅과 멱등 재확인.
+        placement_tools.move_robot(p["robot"], p["x"], p["y"], p["rot"],
+                                   panels=p["panels"])
         st = placement_tools.transform_robot(p["robot"], panel_left=p["panels"][1],
                                              panel_right=p["panels"][0], furniture=p["furniture"])
         print("[EXEC] %s → (%d,%d) rot%d panels%s '%s'"
@@ -505,7 +516,9 @@ def _run_form_layer(openai_client, intent, utterance):
     tools.STATE["intent"] = intent
     tools.STATE["utterance"] = utterance
     it = intent.get("intent_type")
-    room, motifs = _room_desc(sc), _referenced_motifs(intent)
+    room = _room_desc(sc)
+    # modify/remove는 확정 가구(motif 키)가 없어 항상 빈 결과이고 ask_form도 안 쓴다 — 계산 생략
+    motifs = _referenced_motifs(intent) if it in ("new_scene", "add") else None
     seed_reason = None
     # _execute가 이동·변형·정리를 '먼저' 하고 승인을 나중에 받으므로, 승인 없이 끝나면
     # 거부된 배치가 다음 턴의 시작 상태가 된다. 규칙: **루프 안에서는 유지, 루프를 벗어나는
@@ -532,9 +545,14 @@ def _run_form_layer(openai_client, intent, utterance):
                 rollback()                    # 1라운드면 no-op, 재구상 라운드면 앞 라운드 실행분 회수
                 return msg
             res = viewer_tools.ask_user(msg)  # HITL-2 (+승인 시 자동 commit)
+            tools.metric("hitl2_attempts")    # 반환 뒤에 센다 — 승인/거부가 실제로 돌아온
+                                              # 라운드만 분모로 삼아야 거부율이 정합한다
             if res.get("approved"):
                 return msg
+            tools.metric("hitl2_rejects")     # 거부·중단 모두 '승인 안 됨' (HITL-1과 같은 기준)
             if res.get("aborted") or not res.get("feedback"):
+                if res.get("aborted"):
+                    eventlog.record("hitl2_aborted")   # 중단은 사후에 거부와 갈라 볼 수 있게
                 rollback()                    # 중단·피드백 없는 거부 → 실행분 회수
                 return msg
             # 거부 + 피드백 → 그 피드백을 사유로 Phase A부터 다시 (라운드마다 신선한 LLM 예산)
@@ -632,12 +650,10 @@ def handle(openai_client, scene_state, text, last_intent):
                     viewer.chat("system", "아직 확정할 배치가 없어요. 먼저 원하시는 상황을 말씀해주세요.")
                 tools.metric_set("outcome", "no_change")
                 return last_intent
-            entry, changed = scene_state.commit_if_changed("사용자 승인: " + text, "confirm", text)
-            if changed:   # 새로 확정됐을 때만 안내. turn 번호는 내부 개념 — 채팅에 노출하지 않는다
-                print("[commit] turn %d 확정" % entry["turn"])
-                if viewer:
-                    viewer.chat("system", "배치가 확정되었습니다.")
-            else:
+            # commit_layout이 STATE에서 intent_type·utterance를 읽으므로 먼저 배선한다
+            # (confirm은 _run_form_layer를 안 거쳐 STATE가 비어 있다).
+            tools.STATE["intent"], tools.STATE["utterance"] = intent, text
+            if not viewer_tools.announce_commit("사용자 승인: " + text):
                 tools.metric_set("outcome", "no_change")
             return intent
 
@@ -673,6 +689,8 @@ def handle(openai_client, scene_state, text, last_intent):
                 excluded = [{"item": f["item"], "reason": f.get("reason")}
                             for f in items if not f.get("feasible")]
                 tools.metric("func_excluded", len(excluded))
+                if excluded:   # reason은 LLM 출력이라 소급 재현 불가 — 이벤트로 못 박는다 (§17.6)
+                    eventlog.record("func_infeasible", utterance=text, items=excluded)
                 if items and not feasible:   # 전부 구현 불가 → 형태층 스킵, 사용자에게 바로 알림
                     msg = " ".join(e["reason"] or ("%s은(는) 로봇 가구로 만들 수 없어요." % e["item"])
                                    for e in excluded)
@@ -727,7 +745,7 @@ def handle_logged(openai_client, scene_state, session_id, seq, text, input_mode,
               if committed else None)   # 커밋 시점 잔여 물리 위반 = 품질 지표
     counters = {k: v for k, v in m.items() if k not in ("outcome", "intent_type")}
     rec = {"session_id": session_id, "mode": "agent", "seq": seq,
-           "utterance": text, "input_mode": input_mode,
+           "utterance": text, "input_mode": input_mode,   # STT 제거로 현재는 항상 "typed"
            "space": scene_state.space, "intent_type": m.get("intent_type"),
            "outcome": outcome,
            "turn": scene_state.turn if committed else None,
